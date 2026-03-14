@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Výstupní data extrakce
+output/
+*.ab
+*.tar
+_exif_tmp/
+_hash_tmp/
+
+# Virtuální prostředí
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logy
+*.log
+
+# Lokální konfigurace nástrojů
+.claude/
