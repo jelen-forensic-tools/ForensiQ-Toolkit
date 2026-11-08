@@ -15,6 +15,7 @@ from .backup_panel import BackupImportPanel
 from .results_panel import ResultsPanel
 from .ios_panel import iOSPanel
 from .ios_backup_panel import iOSBackupPanel
+from .ios_ramdisk_panel import iOSRamdiskPanel
 from core.adb_manager import ADBManager
 from core.extractor import Extractor, EXTRACTION_MODULES
 from core.report import generate_report, generate_pdf_report, generate_excel_report
@@ -198,9 +199,10 @@ class ForenziQApp(ctk.CTk):
             ("extraction", "nav.extraction"),
             ("results",    "nav.results"),
             ("backup",     "nav.backup"),
-            ("ios",        "nav.ios"),
-            ("ios_backup", "nav.ios_backup"),
-            ("comparison", "nav.comparison"),
+            ("ios",         "nav.ios"),
+            ("ios_backup",  "nav.ios_backup"),
+            ("ios_ramdisk", "nav.ios_ramdisk"),
+            ("comparison",  "nav.comparison"),
             ("timeline",   "nav.timeline"),
             ("map",        "nav.map"),
             ("bypass",     "nav.bypass"),
@@ -214,8 +216,9 @@ class ForenziQApp(ctk.CTk):
             "map":        "map",
             "bypass":     "bypass",
             "backup":     "backup",
-            "ios":        "ios",
-            "ios_backup": "ios_backup",
+            "ios":         "ios",
+            "ios_backup":  "ios_backup",
+            "ios_ramdisk": "ios_ramdisk",
         }
         self._nav_buttons = {}
 
@@ -353,6 +356,9 @@ class ForenziQApp(ctk.CTk):
         elif view == "ios_backup":
             p = iOSBackupPanel(self._content, accent="#5AC8FA")
             self._ios_backup_panel = p
+        elif view == "ios_ramdisk":
+            p = iOSRamdiskPanel(self._content, accent="#5AC8FA")
+            self._ios_ramdisk_panel = p
         else:
             return None
 
@@ -372,8 +378,9 @@ class ForenziQApp(ctk.CTk):
         "map":        "topbar.map",
         "bypass":     "topbar.bypass",
         "backup":     "topbar.backup",
-        "ios":        "topbar.ios",
-        "ios_backup": "topbar.ios_backup",
+        "ios":         "topbar.ios",
+        "ios_backup":  "topbar.ios_backup",
+        "ios_ramdisk": "topbar.ios_ramdisk",
     }
 
     def _navigate(self, view: str):
@@ -469,8 +476,9 @@ class ForenziQApp(ctk.CTk):
             "map":        "nav.map",
             "bypass":     "nav.bypass",
             "backup":     "nav.backup",
-            "ios":        "nav.ios",
-            "ios_backup": "nav.ios_backup",
+            "ios":         "nav.ios",
+            "ios_backup":  "nav.ios_backup",
+            "ios_ramdisk": "nav.ios_ramdisk",
         }
         for view_key, btn in self._nav_buttons.items():
             label_key = nav_label_keys.get(view_key, view_key)

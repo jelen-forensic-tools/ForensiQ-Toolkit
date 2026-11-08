@@ -18,7 +18,7 @@ hiddenimports = []
 
 # Balíčky, které mají vlastní data/assets nebo mnoho podmodulů –
 # collect_all je stáhne kompletně (jinak PyInstaller část vynechá).
-for pkg in ("customtkinter", "tkintermapview", "pymobiledevice3"):
+for pkg in ("customtkinter", "tkintermapview", "pymobiledevice3", "paramiko"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b

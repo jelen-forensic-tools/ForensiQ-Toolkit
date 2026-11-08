@@ -6,3 +6,5 @@ deepdiff==8.1.1
 tkintermapview==1.29
 # iOS device communication (optional – required only for live iOS extraction)
 pymobiledevice3
+# SSH/SFTP for the checkm8/usbliter8 ramdisk acquisition (optional)
+paramiko
