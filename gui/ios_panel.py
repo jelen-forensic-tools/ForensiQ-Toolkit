@@ -136,7 +136,7 @@ class iOSPanel(ctk.CTkFrame):
         self._stop_btn = ctk.CTkButton(
             btn_row, text=t("ext.stop"),
             width=90, height=36,
-            fg_color="#f44336", text_color="#fff",
+            fg_color="#f44336", hover_color="#c62828", text_color="#fff",
             font=ctk.CTkFont(size=13),
             command=self._on_stop,
             state="disabled",
@@ -146,7 +146,7 @@ class iOSPanel(ctk.CTkFrame):
         self._start_btn = ctk.CTkButton(
             btn_row, text=t("ios.start"),
             width=160, height=36,
-            fg_color=self.accent, text_color="#000",
+            fg_color="#1D6F42", hover_color="#145230", text_color="#fff",
             font=ctk.CTkFont(size=13, weight="bold"),
             command=self._on_start,
         )
