@@ -14,6 +14,8 @@ RED         = "#ff5252"
 RED_DIM     = "#3d1a1f"
 WHITE       = "#ffffff"
 
+LEFT_W      = 440   # pevná šířka levého panelu (přehled zařízení), ~1/3 šířky
+
 
 _SUPERSAMPLE = 4   # render 4× větší → CTkImage vždy downscaluje (Lanczos) → ostrá na HiDPI
 _icon_cache: dict[tuple, ctk.CTkImage] = {}  # (size, color) → CTkImage
@@ -67,16 +69,17 @@ class DeviceDashboard(ctk.CTkFrame):
         super().__init__(master, fg_color="transparent", **kwargs)
         self.accent = accent
         self._current_info = None
-        # Levý panel ~1/3 šířky, pravý ~2/3
-        self.grid_columnconfigure(0, weight=1, minsize=260)
-        self.grid_columnconfigure(1, weight=2)
+        # Levý panel pevná šířka ~1/3 (weight=0 → nezávisí na obsahu ani jazyce);
+        # pravý panel roste se zbytkem okna.
+        self.grid_columnconfigure(0, weight=0, minsize=LEFT_W)
+        self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
         self._build()
 
     # ------------------------------------------------------------------
     def _build(self):
         # ── Levý panel ──────────────────────────────────────────────
-        self._left = ctk.CTkFrame(self, fg_color=BG_LEFT, corner_radius=12)
+        self._left = ctk.CTkFrame(self, fg_color=BG_LEFT, corner_radius=12, width=LEFT_W)
         self._left.grid(row=0, column=0, sticky="nsew", padx=(5, 3), pady=5)
         self._left.grid_propagate(False)
         self._left.grid_columnconfigure(0, weight=1)
