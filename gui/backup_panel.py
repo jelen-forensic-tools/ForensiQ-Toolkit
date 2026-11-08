@@ -132,7 +132,7 @@ class BackupImportPanel(ctk.CTkFrame):
         self._btn_stop = ctk.CTkButton(
             btn_row, text=t("ext.stop"),
             font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color=RED, hover_color="#c62828",
+            fg_color="#f44336", hover_color="#c62828",
             text_color="#fff", text_color_disabled="#ffffff",
             width=100, height=38,
             state="disabled",

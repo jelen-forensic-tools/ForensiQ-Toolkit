@@ -255,7 +255,7 @@ class BypassPanel(ctk.CTkFrame):
         self._btn_run = ctk.CTkButton(
             header, text=t("byp.run"),
             font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color=RED, hover_color="#cc1133",
+            fg_color="#f44336", hover_color="#c62828",
             text_color=WHITE,
             width=140, height=38,
             command=self._run_method,

@@ -12,6 +12,7 @@ from typing import Optional
 
 import customtkinter as ctk
 from core.i18n import t
+from .iconset import module_icon
 from core.ios_backup_parser import (
     iOSBackupParser,
     IOS_BACKUP_MODULES,
@@ -160,8 +161,8 @@ class iOSBackupPanel(ctk.CTkFrame):
         self._btn_run = ctk.CTkButton(
             actions, text=t("ios_bkp.run"),
             font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color=GREEN, hover_color="#009624",
-            text_color="#000", width=150, height=36,
+            fg_color="#1D6F42", hover_color="#145230",
+            text_color="#fff", width=150, height=36,
             command=self._run,
         )
         self._btn_run.pack(side="left", padx=(0, 4))
@@ -218,9 +219,14 @@ class iOSBackupPanel(ctk.CTkFrame):
             card.grid(row=i + 1, column=0, sticky="ew", padx=5, pady=4)
             card.grid_columnconfigure(1, weight=1)
 
-            ctk.CTkLabel(
-                card, text=icon, font=ctk.CTkFont(size=20), width=36,
-            ).grid(row=0, column=0, padx=(12, 4), pady=10)
+            _img = module_icon(key, size=30)
+            if _img is not None:
+                ctk.CTkLabel(card, text="", image=_img, width=36).grid(
+                    row=0, column=0, padx=(12, 4), pady=8)
+            else:
+                ctk.CTkLabel(
+                    card, text=icon, font=ctk.CTkFont(size=20), width=36,
+                ).grid(row=0, column=0, padx=(12, 4), pady=10)
 
             ctk.CTkLabel(
                 card, text=t(f"ios_bkp.mod.{key}"),

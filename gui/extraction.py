@@ -3,6 +3,7 @@ import datetime
 from typing import Callable
 from core.extractor import EXTRACTION_MODULES, AGENT_MODULES
 from core.i18n import t
+from .iconset import module_icon
 
 ACCENT     = "#00d4ff"
 BG_CARD    = "#16213e"
@@ -105,7 +106,7 @@ class ExtractionPanel(ctk.CTkFrame):
         self._stop_btn = ctk.CTkButton(
             right, text=t("ext.stop"),
             width=90, height=38,
-            fg_color=RED, hover_color="#c62828",
+            fg_color="#f44336", hover_color="#c62828",
             text_color="#fff", text_color_disabled="#ffffff",
             font=ctk.CTkFont(size=13, weight="bold"),
             command=self._on_stop_clicked,
@@ -257,11 +258,16 @@ class ExtractionPanel(ctk.CTkFrame):
         card.grid(row=row, column=col, sticky="ew", padx=5, pady=5)
         card.grid_columnconfigure(1, weight=1)
 
-        icon = MODULE_ICONS.get(key, "📁")
-
-        ctk.CTkLabel(card, text=icon, font=ctk.CTkFont(size=24), width=45).grid(
-            row=0, column=0, rowspan=2, padx=(15, 5), pady=15,
-        )
+        img = module_icon(key)
+        if img is not None:
+            ctk.CTkLabel(card, text="", image=img, width=45).grid(
+                row=0, column=0, rowspan=2, padx=(15, 5), pady=12,
+            )
+        else:
+            icon = MODULE_ICONS.get(key, "📁")
+            ctk.CTkLabel(card, text=icon, font=ctk.CTkFont(size=24), width=45).grid(
+                row=0, column=0, rowspan=2, padx=(15, 5), pady=15,
+            )
         ctk.CTkLabel(
             card, text=label,
             font=ctk.CTkFont(size=13, weight="bold"), anchor="w",
