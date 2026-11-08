@@ -78,10 +78,35 @@ class ForenziQApp(ctk.CTk):
         self._extraction_results: list = []
         self._current_view = "dashboard"
         self._last_device_serials: list = []   # cache pro smart polling
+        self._closing = False
+        self._poll_after_id = None
 
         self._build_ui()
         self._check_adb()
         self._start_device_polling()
+        # Čisté zavření – zastaví polling i běžící úlohy, pak zničí okno naráz
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _on_close(self):
+        """Zastaví naplánované callbacky a vlákna, pak zavře okno v jednom kroku
+        (zabrání „rozpadu" vykreslení při postupném ničení widgetů)."""
+        if self._closing:
+            return
+        self._closing = True
+        if self._poll_after_id is not None:
+            try:
+                self.after_cancel(self._poll_after_id)
+            except Exception:
+                pass
+        try:
+            if self.extractor:
+                self.extractor.stop()
+        except Exception:
+            pass
+        try:
+            self.quit()      # ukončí mainloop
+        finally:
+            self.destroy()   # zničí okno naráz
 
     # ── UI construction ──────────────────────────────────────────────────────
 
@@ -479,18 +504,23 @@ class ForenziQApp(ctk.CTk):
 
     def _start_device_polling(self):
         def _poll():
+            if self._closing:
+                return
             self._refresh_devices()
-            self.after(5000, _poll)
-        self.after(500, _poll)
+            self._poll_after_id = self.after(5000, _poll)
+        self._poll_after_id = self.after(500, _poll)
 
     def _refresh_devices(self):
         def _worker():
             devices = self.adb.get_devices()
             serials = [d["serial"] for d in devices]
             # Aktualizuj UI jen pokud se seznam zařízení skutečně změnil
-            if serials != self._last_device_serials:
+            if serials != self._last_device_serials and not self._closing:
                 self._last_device_serials = serials
-                self.after(0, lambda d=devices: self._update_device_list(d))
+                try:
+                    self.after(0, lambda d=devices: self._update_device_list(d))
+                except Exception:
+                    pass
         threading.Thread(target=_worker, daemon=True).start()
 
     def _update_device_list(self, devices: list[dict]):
