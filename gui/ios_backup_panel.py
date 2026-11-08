@@ -236,12 +236,6 @@ class iOSBackupPanel(ctk.CTkFrame):
         right.grid(row=0, column=1, sticky="nsew")
         right.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(
-            right, text=t("ios_bkp.modules_title"),
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=WHITE,
-        ).grid(row=0, column=0, padx=8, pady=(12, 8), sticky="w")
-
         for i, (key, label) in enumerate(IOS_BACKUP_MODULES.items()):
             icon = MODULE_ICONS.get(key, "📁")
             card = ctk.CTkFrame(right, fg_color=BG_CARD, corner_radius=10)
