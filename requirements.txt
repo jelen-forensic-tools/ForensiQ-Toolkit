@@ -4,3 +4,5 @@ reportlab==4.2.2
 openpyxl==3.1.5
 deepdiff==8.1.1
 tkintermapview==1.29
+# iOS device communication (optional – required only for live iOS extraction)
+pymobiledevice3

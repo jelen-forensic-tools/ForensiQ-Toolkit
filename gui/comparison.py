@@ -27,16 +27,16 @@ COMPARABLE_FILES = {
     "device_info.json":     "mod.device_info",
 }
 
-# Klíče, podle kterých se identifikují záznamy (primární klíče)
+# Keys used to identify records (primary keys)
 RECORD_KEYS = {
     "contacts.json":        "number",
-    "sms.json":             None,        # porovnání podle indexu
+    "sms.json":             None,        # comparison by index
     "call_logs.json":       None,
     "apps.json":            "package",
     "wifi_networks.json":   "ssid",
     "accounts.json":        "name",
     "browser_history.json": "url",
-    "device_info.json":     None,        # dict → porovnání polí
+    "device_info.json":     None,        # dict → field comparison
 }
 
 
@@ -49,7 +49,7 @@ def _load_json(path: str):
 
 
 def _compare_lists(data_a: list, data_b: list, key: Optional[str]) -> dict:
-    """Porovná dva listy záznamů. Vrátí dict s new/removed/changed/same."""
+    """Compare two lists of records. Returns a dict with new/removed/changed/same."""
     if key:
         map_a = {str(r.get(key, i)): r for i, r in enumerate(data_a)}
         map_b = {str(r.get(key, i)): r for i, r in enumerate(data_b)}
@@ -80,7 +80,7 @@ def _compare_lists(data_a: list, data_b: list, key: Optional[str]) -> dict:
 
 
 def _compare_dicts(a: dict, b: dict) -> dict:
-    """Porovná dva slovníky pole po poli."""
+    """Compare two dicts field by field."""
     all_keys = set(a) | set(b)
     changed = {}
     for k in all_keys:
@@ -91,7 +91,7 @@ def _compare_dicts(a: dict, b: dict) -> dict:
 
 
 def compare_extractions(dir_a: str, dir_b: str) -> dict:
-    """Porovná dvě extrakční složky. Vrátí slovník výsledků."""
+    """Compare two extraction folders. Returns a dict of results."""
     results = {}
     for filename, label_key in COMPARABLE_FILES.items():
         path_a = os.path.join(dir_a, filename)
@@ -115,7 +115,7 @@ def compare_extractions(dir_a: str, dir_b: str) -> dict:
         elif isinstance(data_a, dict) and isinstance(data_b, dict):
             diff = {"fields": _compare_dicts(data_a, data_b)}
         else:
-            diff = {"error": "Nekompatibilní formáty"}
+            diff = {"error": t("cmp.incompatible")}
 
         results[filename] = {"label_key": label_key, "diff": diff}
 
@@ -135,17 +135,17 @@ class ComparisonPanel(ctk.CTkFrame):
         self._build()
 
     def _build(self):
-        # ── Výběr složek ─────────────────────────────────────────────────────
+        # ── Folder selection ─────────────────────────────────────────────────
         sel_card = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=12)
-        sel_card.grid(row=0, column=0, sticky="ew", pady=(0, 15))
+        sel_card.grid(row=0, column=0, sticky="ew", pady=(0, 12))
         sel_card.grid_columnconfigure((1, 3), weight=1)
 
-        # Záloha A
+        # Backup A
         self._label_a = ctk.CTkLabel(
             sel_card, text=t("cmp.backup_a"),
             font=ctk.CTkFont(size=12), text_color=TEXT_MUTED
         )
-        self._label_a.grid(row=0, column=0, padx=(20, 8), pady=20, sticky="w")
+        self._label_a.grid(row=0, column=0, padx=(20, 8), pady=14, sticky="w")
 
         self._entry_a = ctk.CTkEntry(
             sel_card, textvariable=self._dir_a,
@@ -161,12 +161,12 @@ class ComparisonPanel(ctk.CTkFrame):
         )
         self._browse_a_btn.grid(row=0, column=2, padx=(0, 20))
 
-        # Záloha B
+        # Backup B
         self._label_b = ctk.CTkLabel(
             sel_card, text=t("cmp.backup_b"),
             font=ctk.CTkFont(size=12), text_color=TEXT_MUTED
         )
-        self._label_b.grid(row=1, column=0, padx=(20, 8), pady=(0, 20), sticky="w")
+        self._label_b.grid(row=1, column=0, padx=(20, 8), pady=(0, 14), sticky="w")
 
         self._entry_b = ctk.CTkEntry(
             sel_card, textvariable=self._dir_b,
@@ -182,9 +182,9 @@ class ComparisonPanel(ctk.CTkFrame):
         )
         self._browse_b_btn.grid(row=1, column=2, padx=(0, 20))
 
-        # Tlačítko porovnat
+        # Compare button
         btn_row = ctk.CTkFrame(sel_card, fg_color="transparent")
-        btn_row.grid(row=2, column=0, columnspan=4, pady=(0, 20), padx=20, sticky="e")
+        btn_row.grid(row=2, column=0, columnspan=4, pady=(0, 14), padx=20, sticky="e")
 
         self._compare_btn = ctk.CTkButton(
             btn_row, text=t("cmp.compare"),
@@ -195,14 +195,14 @@ class ComparisonPanel(ctk.CTkFrame):
         )
         self._compare_btn.pack()
 
-        # ── Výsledky ─────────────────────────────────────────────────────────
+        # ── Results ──────────────────────────────────────────────────────────
         self._scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self._scroll.grid(row=1, column=0, sticky="nsew")
         self._scroll.grid_columnconfigure(0, weight=1)
 
         self._placeholder = ctk.CTkLabel(
             self._scroll,
-            text="Vyberte dvě extrakční složky a klikněte na Porovnat zálohy.",
+            text=t("cmp.placeholder"),
             text_color=TEXT_MUTED,
             font=ctk.CTkFont(size=13)
         )
@@ -223,11 +223,11 @@ class ComparisonPanel(ctk.CTkFrame):
         if not dir_a or not dir_b:
             return
 
-        self._compare_btn.configure(state="disabled", text="Porovnávám...")
+        self._compare_btn.configure(state="disabled", text=t("cmp.comparing"))
         for w in self._scroll.winfo_children():
             w.destroy()
 
-        ctk.CTkLabel(self._scroll, text="Probíhá porovnání...",
+        ctk.CTkLabel(self._scroll, text=t("cmp.running"),
                      text_color=TEXT_MUTED).grid(row=0, column=0, pady=30)
 
         def _worker():
@@ -245,11 +245,11 @@ class ComparisonPanel(ctk.CTkFrame):
 
         if not results:
             ctk.CTkLabel(self._scroll,
-                         text="V těchto složkách nebyla nalezena žádná srovnatelná data.",
+                         text=t("cmp.no_data"),
                          text_color=TEXT_MUTED).grid(row=0, column=0, pady=40)
             return
 
-        # Souhrn nahoře
+        # Summary at top
         summary_card = ctk.CTkFrame(self._scroll, fg_color=BG_CARD, corner_radius=10)
         summary_card.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         summary_card.grid_columnconfigure((0, 1, 2, 3), weight=1)
@@ -262,10 +262,10 @@ class ComparisonPanel(ctk.CTkFrame):
             total_changed += len(diff.get("changed", []))
 
         for col, (label, count, color) in enumerate([
-            (t("cmp.new"),     total_new,     CLR_NEW),
-            (t("cmp.removed"), total_removed, CLR_REMOVED),
-            (t("cmp.changed"), total_changed, CLR_CHANGED),
-            ("Porovnaných souborů", len(results), self.accent),
+            (t("cmp.new"),          total_new,     CLR_NEW),
+            (t("cmp.removed"),      total_removed, CLR_REMOVED),
+            (t("cmp.changed"),      total_changed, CLR_CHANGED),
+            (t("cmp.files_compared"), len(results), self.accent),
         ]):
             f = ctk.CTkFrame(summary_card, fg_color="transparent")
             f.grid(row=0, column=col, padx=15, pady=15)
@@ -274,7 +274,7 @@ class ComparisonPanel(ctk.CTkFrame):
             ctk.CTkLabel(f, text=label, font=ctk.CTkFont(size=11),
                          text_color=TEXT_MUTED).pack()
 
-        # Detail každého souboru
+        # Per-file detail
         for row_idx, (fname, item) in enumerate(results.items(), start=1):
             self._build_diff_card(self._scroll, row_idx, fname, item)
 
@@ -320,31 +320,31 @@ class ComparisonPanel(ctk.CTkFrame):
         if n_fields:
             _badge(badges, f"{n_fields} {t('cmp.changed').lower()}", CLR_CHANGED)
         if not (n_new or n_removed or n_changed or n_fields):
-            _badge(badges, "Beze změn", CLR_SAME)
+            _badge(badges, t("cmp.no_changes"), CLR_SAME)
 
-        # Detailní diff (rozbalitelný)
+        # Detailed diff (expandable)
         body = ctk.CTkFrame(card, fg_color="transparent")
         body.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 10))
         body.grid_columnconfigure(0, weight=1)
 
-        # "fields" diff (pro device_info)
+        # "fields" diff (for device_info)
         if "fields" in diff and diff["fields"]:
-            rows = [["Pole", "Záloha A (starší)", "Záloha B (novější)"]]
+            rows = [[t("cmp.col_field"), t("cmp.col_backup_a"), t("cmp.col_backup_b")]]
             for field, vals in diff["fields"].items():
                 rows.append([field, str(vals["before"]), str(vals["after"])])
             self._render_table(body, rows, 0)
 
-        # Nové záznamy
+        # New records
         if diff.get("new"):
             self._render_section(body, t("cmp.new"), diff["new"], CLR_NEW,
                                  len(diff.get("fields", {})) > 0)
 
-        # Odstraněné
+        # Removed
         if diff.get("removed"):
             offset = (1 if diff.get("new") else 0) + (1 if diff.get("fields") else 0)
             self._render_section(body, t("cmp.removed"), diff["removed"], CLR_REMOVED, offset > 0)
 
-        # Změněné
+        # Changed
         if diff.get("changed"):
             for ci, change in enumerate(diff["changed"][:20]):
                 self._render_change(body, change, ci)
@@ -390,21 +390,21 @@ class ComparisonPanel(ctk.CTkFrame):
         after  = change.get("after", {})
         all_keys = list(dict.fromkeys(list(before.keys()) + list(after.keys())))
 
-        rows = [["Pole", "Před", "Po"]]
+        rows = [[t("cmp.col_field"), t("cmp.col_before"), t("cmp.col_after")]]
         for k in all_keys:
             vb, va = str(before.get(k, "—")), str(after.get(k, "—"))
             if vb != va:
                 rows.append([k, vb, va])
 
         if len(rows) > 1:
-            ctk.CTkLabel(parent, text=f"Změna #{idx + 1}",
+            ctk.CTkLabel(parent, text=t("cmp.change_n").format(n=idx + 1),
                          font=ctk.CTkFont(size=10), text_color=CLR_CHANGED).grid(
                 row=offset, column=0, sticky="w", pady=(4, 1)
             )
             self._render_table(parent, rows, offset + 1)
 
     def _render_table(self, parent, rows: list, base_row: int, col_widths=None):
-        """Vykreslí jednoduchý grid jako tabulku."""
+        """Render a simple grid as a table."""
         frame = ctk.CTkFrame(parent, fg_color="#0d1117", corner_radius=6)
         frame.grid(row=base_row, column=0, sticky="ew", pady=2)
 
@@ -428,7 +428,7 @@ class ComparisonPanel(ctk.CTkFrame):
         for ci in range(len(rows[0])):
             frame.grid_columnconfigure(ci, weight=1)
 
-    # ── Překlad ───────────────────────────────────────────────────────────────
+    # ── Language refresh ──────────────────────────────────────────────────────
 
     def refresh_lang(self):
         self._label_a.configure(text=t("cmp.backup_a"))
@@ -436,6 +436,7 @@ class ComparisonPanel(ctk.CTkFrame):
         self._browse_a_btn.configure(text=t("cmp.browse"))
         self._browse_b_btn.configure(text=t("cmp.browse"))
         self._compare_btn.configure(text=t("cmp.compare"))
+        self._placeholder.configure(text=t("cmp.placeholder"))
         # Re-render results if available
         if self._results:
             self._show_results(self._results)

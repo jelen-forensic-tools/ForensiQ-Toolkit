@@ -28,14 +28,17 @@ MODULE_ICONS = {
     "file_analysis":  "🔍",
     "file_hashes":    "#️",
     "deleted_data":   "🗑",
+    "whatsapp":       "💚",
+    "viber":          "🟣",
     # Agent
     "adb_backup":     "💾",
+    "root_backup":    "🔓",
     "app_providers":  "🔗",
     "usage_stats":    "📊",
     "termux_agent":   "🤖",
 }
 
-AGENT_ACCENT = "#ff9800"   # oranžová pro agentní moduly
+AGENT_ACCENT = "#ff9800"   # orange for agent modules
 
 
 class ExtractionPanel(ctk.CTkFrame):
@@ -53,10 +56,10 @@ class ExtractionPanel(ctk.CTkFrame):
         self.grid_rowconfigure(1, weight=1)
         self._build()
 
-    # ── Stavba UI ─────────────────────────────────────────────────────────────
+    # ── UI construction ───────────────────────────────────────────────────────
 
     def _build(self):
-        # ── Horní lišta ───────────────────────────────────────────────────────
+        # ── Top bar ───────────────────────────────────────────────────────────
         action_card = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=12)
         action_card.grid(row=0, column=0, sticky="ew", pady=(0, 12))
         action_card.grid_columnconfigure(1, weight=1)
@@ -92,7 +95,8 @@ class ExtractionPanel(ctk.CTkFrame):
         self._start_btn = ctk.CTkButton(
             right, text=t("ext.start"),
             width=150, height=38,
-            fg_color=self.accent, text_color="#000",
+            fg_color="#1D6F42", hover_color="#145230",
+            text_color="#fff", text_color_disabled="#ffffff",
             font=ctk.CTkFont(size=13, weight="bold"),
             command=self._on_start_clicked,
         )
@@ -101,8 +105,9 @@ class ExtractionPanel(ctk.CTkFrame):
         self._stop_btn = ctk.CTkButton(
             right, text=t("ext.stop"),
             width=90, height=38,
-            fg_color="#f44336", text_color="#fff",
-            font=ctk.CTkFont(size=13),
+            fg_color=RED, hover_color="#c62828",
+            text_color="#fff", text_color_disabled="#ffffff",
+            font=ctk.CTkFont(size=13, weight="bold"),
             command=self._on_stop_clicked,
             state="disabled",
         )
@@ -119,7 +124,7 @@ class ExtractionPanel(ctk.CTkFrame):
             font=ctk.CTkFont(size=11), text_color=TEXT_MUTED,
         )
 
-        # ── Hlavní tělo: log vlevo, moduly vpravo ─────────────────────────────
+        # ── Main body: log on the left, modules on the right ─────────────────
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.grid(row=1, column=0, sticky="nsew")
         body.grid_columnconfigure(0, weight=3, minsize=380)
@@ -130,13 +135,13 @@ class ExtractionPanel(ctk.CTkFrame):
         self._build_modules(body)
 
     def _build_log(self, parent):
-        """Levý panel – log extrakce."""
+        """Left panel – extraction log."""
         log_card = ctk.CTkFrame(parent, fg_color=BG_CARD, corner_radius=12)
         log_card.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         log_card.grid_columnconfigure(0, weight=1)
         log_card.grid_rowconfigure(2, weight=1)
 
-        # Hlavička logu
+        # Log header
         hdr = ctk.CTkFrame(log_card, fg_color="transparent")
         hdr.grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
         hdr.grid_columnconfigure(1, weight=1)
@@ -157,7 +162,7 @@ class ExtractionPanel(ctk.CTkFrame):
             row=1, column=0, sticky="ew", padx=14, pady=(0, 0)
         )
 
-        # Textové pole
+        # Text field
         self._log_box = ctk.CTkTextbox(
             log_card,
             fg_color=BG_LOG,
@@ -169,7 +174,7 @@ class ExtractionPanel(ctk.CTkFrame):
         )
         self._log_box.grid(row=2, column=0, sticky="nsew", padx=10, pady=(6, 10))
 
-        # Barevné tagy
+        # Colour tags
         self._log_box.tag_config("ok",        foreground=GREEN)
         self._log_box.tag_config("err",       foreground=RED)
         self._log_box.tag_config("info",      foreground=ACCENT)
@@ -179,7 +184,7 @@ class ExtractionPanel(ctk.CTkFrame):
         self._log_box.tag_config("bold_ok",   foreground=GREEN)
 
     def _build_modules(self, parent):
-        """Pravý panel – výběr modulů."""
+        """Right panel – module selection."""
         right = ctk.CTkFrame(parent, fg_color="transparent")
         right.grid(row=0, column=1, sticky="nsew")
         right.grid_columnconfigure(0, weight=1)
@@ -195,12 +200,12 @@ class ExtractionPanel(ctk.CTkFrame):
         for w in scroll.winfo_children():
             w.destroy()
 
-        # ── Standardní moduly ─────────────────────────────────────────────────
+        # ── Standard modules ──────────────────────────────────────────────────
         modules = list(EXTRACTION_MODULES.items())
         for i, (key, _) in enumerate(modules):
             self._build_module_card(scroll, key, row=i, col=0)
 
-        # ── Sekce Agent ───────────────────────────────────────────────────────
+        # ── Agent section ─────────────────────────────────────────────────────
         section_row = len(modules)
 
         section = ctk.CTkFrame(scroll, fg_color="#1a1a0a", corner_radius=10)
@@ -274,7 +279,7 @@ class ExtractionPanel(ctk.CTkFrame):
             checkmark_color="#000", fg_color=cb_accent,
         ).grid(row=0, column=2, rowspan=2, padx=15)
 
-    # ── Ovládání ─────────────────────────────────────────────────────────────
+    # ── Controls ─────────────────────────────────────────────────────────────
 
     def _select_all(self):
         for var in self._checkboxes.values():
@@ -300,7 +305,7 @@ class ExtractionPanel(ctk.CTkFrame):
     def _log(self, text: str, tag: str = ""):
         ts = datetime.datetime.now().strftime("%H:%M:%S")
         self._log_box.configure(state="normal")
-        # Timestamp v tlumené barvě
+        # Timestamp in muted colour
         self._log_box.insert("end", f"[{ts}] ", "muted")
         if tag:
             self._log_box.insert("end", text + "\n", tag)
@@ -310,7 +315,7 @@ class ExtractionPanel(ctk.CTkFrame):
         self._log_box.see("end")
 
     def _log_raw(self, text: str, tag: str = ""):
-        """Vloží řádek bez timestamp (pro oddělovače apod.)."""
+        """Insert a line without a timestamp (for separators etc.)."""
         self._log_box.configure(state="normal")
         if tag:
             self._log_box.insert("end", text + "\n", tag)
@@ -326,17 +331,17 @@ class ExtractionPanel(ctk.CTkFrame):
         self._eta_label.configure(text="")
 
     def log_session_start(self, device_label: str, selected_count: int):
-        """Záhlaví nové extrakce."""
+        """Header for a new extraction session."""
         self._log_raw("─" * 48, "separator")
-        self._log(f"EXTRAKCE ZAHÁJENA", "info")
-        self._log(f"Zařízení  : {device_label}", "muted")
-        self._log(f"Modulů    : {selected_count}", "muted")
+        self._log(t("ext.log_started"), "info")
+        self._log(f"{t('ext.log_device')} {device_label}", "muted")
+        self._log(f"{t('ext.log_modules')} {selected_count}", "muted")
         self._log_raw("─" * 48, "separator")
 
     def log_module_start(self, label: str, current: int, total: int):
         self._log_raw("", "")
         self._log(f"▶  [{current}/{total}]  {label}", "info")
-        self._log(f"   Spouštím extrakci dat…", "muted")
+        self._log(t("ext.log_running"), "muted")
 
     def log_module_done(self, label: str, current: int, total: int,
                         elapsed: float, avg: float, success: bool,
@@ -344,25 +349,25 @@ class ExtractionPanel(ctk.CTkFrame):
         elapsed_str = f"{elapsed:.2f}s"
 
         if success:
-            detail = f"{count} {t('ext.records')}" if count else "OK (žádná data)"
+            detail = f"{count} {t('ext.records')}" if count else t("ext.log_no_data")
             self._log(f"✓  {label}", "ok")
-            self._log(f"   Výsledek  : {detail}", "muted")
-            self._log(f"   Trvání    : {elapsed_str}", "muted")
+            self._log(f"{t('ext.log_result')} {detail}", "muted")
+            self._log(f"{t('ext.log_duration')} {elapsed_str}", "muted")
         else:
             self._log(f"✗  {label}", "err")
-            self._log(f"   Chyba     : {error}", "err")
-            self._log(f"   Trvání    : {elapsed_str}", "muted")
+            self._log(f"{t('ext.log_error_lbl')} {error}", "err")
+            self._log(f"{t('ext.log_duration')} {elapsed_str}", "muted")
 
         remaining = total - current
         if remaining > 0:
             eta_sec = int(avg * remaining)
             eta_str = f"{eta_sec // 60}m {eta_sec % 60}s" if eta_sec >= 60 else f"{eta_sec}s"
-            self._log(f"   Zbývá     : {remaining} modulů  (~{eta_str})", "muted")
+            self._log(t("ext.log_remaining").format(n=remaining, eta=eta_str), "muted")
             self._eta_label.configure(text=t("ext.eta").format(eta=eta_str, n=remaining))
         else:
             self._eta_label.configure(text="")
 
-    # ── Stav extrakce ────────────────────────────────────────────────────────
+    # ── Extraction state ─────────────────────────────────────────────────────
 
     def set_running(self, running: bool):
         self._running = running
@@ -389,6 +394,47 @@ class ExtractionPanel(ctk.CTkFrame):
         self._progress_label.configure(text=f"[{current}/{total}] {module_label}")
         self.log_module_start(module_label, current, total)
 
+    def log_disconnected(self):
+        """Warn the user that the device was disconnected and extraction is paused."""
+        self._log_raw("", "")
+        self._log_raw("⚠  " + "─" * 42, "warn")
+        self._log(t("ext.disconnected_warn"), "warn")
+        self._log(t("ext.waiting_reconnect"), "warn")
+        self._log_raw("⚠  " + "─" * 42, "warn")
+        self._status_label.configure(
+            text=t("ext.disconnected_short"), text_color=ORANGE
+        )
+
+    def log_reconnected(self):
+        """Notify the user that the device reconnected and extraction continues."""
+        self._log_raw("", "")
+        self._log(t("ext.reconnected"), "ok")
+        self._status_label.configure(text=t("ext.running"), text_color=TEXT_MUTED)
+
+    def log_notify(self, msg: str):
+        """Show an action-required notification in the log (e.g. confirm ADB backup on device)."""
+        self._log_raw("", "")
+        self._log_raw("⚠  " + "─" * 42, "warn")
+        for line in msg.splitlines():
+            self._log_raw(f"   {line}", "warn")
+        self._log_raw("⚠  " + "─" * 42, "warn")
+        self._status_label.configure(
+            text=t("ext.waiting_confirm"), text_color=ORANGE
+        )
+
+    def log_copy_progress(self, msg: str):
+        """Průběžný log kopírování souborů (voláno z vlákna extraktoru)."""
+        self._log(msg, "muted")
+
+    def log_stopping(self):
+        """Zpráva zobrazená ihned po kliknutí na Zastavit."""
+        self._log_raw("", "")
+        self._log_raw("⚠  " + "─" * 42, "warn")
+        self._log(t("ext.stopping_log1"), "warn")
+        self._log(t("ext.stopping_log2"), "warn")
+        self._log_raw("⚠  " + "─" * 42, "warn")
+        self._status_label.configure(text=t("ext.stopping"), text_color=ORANGE)
+
     def show_done(self, success_count: int):
         elapsed = ""
         if self._extraction_start:
@@ -404,7 +450,23 @@ class ExtractionPanel(ctk.CTkFrame):
         self._eta_label.configure(text="")
         self._status_label.configure(text=done_msg, text_color="#4CAF50")
 
-    # ── Překlad ──────────────────────────────────────────────────────────────
+    def show_stopped(self, success_count: int):
+        """Závěrečná zpráva po zastavení – ukazuje, co se stihlo extrahovat."""
+        elapsed = ""
+        if self._extraction_start:
+            secs = int((datetime.datetime.now() - self._extraction_start).total_seconds())
+            t_str = f"{secs // 60}m {secs % 60}s"
+            elapsed = f"  |  {t('ext.done_elapsed').format(t=t_str)}"
+
+        self._log_raw("", "")
+        self._log_raw("─" * 48, "separator")
+        self._log(f"■  {t('ext.stopped_log').format(n=success_count)}{elapsed}", "warn")
+        self._log("   " + t("ext.stopped_saved"), "muted")
+        self._log_raw("─" * 48, "separator")
+        self._eta_label.configure(text="")
+        self._status_label.configure(text=t("ext.stopped_status").format(n=success_count), text_color=ORANGE)
+
+    # ── Language refresh ─────────────────────────────────────────────────────
 
     def refresh_lang(self):
         self._select_all_btn.configure(text=t("ext.select_all"))

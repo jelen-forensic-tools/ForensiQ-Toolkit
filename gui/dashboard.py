@@ -10,41 +10,56 @@ TEXT_MUTED  = "#888888"
 TEXT_DIM    = "#555555"
 GREEN       = "#00c853"
 GREEN_DIM   = "#1a3d28"
-RED         = "#ff1744"
+RED         = "#ff5252"
 RED_DIM     = "#3d1a1f"
 WHITE       = "#ffffff"
 
 
+_SUPERSAMPLE = 4   # render 4× větší → CTkImage vždy downscaluje (Lanczos) → ostrá na HiDPI
+_icon_cache: dict[tuple, ctk.CTkImage] = {}  # (size, color) → CTkImage
+
+
 def _make_phone_icon(size: int = 160,
                      color: tuple = (210, 210, 210)) -> ctk.CTkImage:
-    """Minimalistická čistá ikona telefonu – pouze obrys + reproduktor."""
-    w, h = size, int(size * 1.9)
-    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
+    """
+    Ikona telefonu s PIL supersamplingem + cache.
+    Bitmapa se generuje jen jednou pro každou kombinaci (size, color);
+    při opakovaném volání se vrací cached objekt.
+    """
+    key = (size, color)
+    if key in _icon_cache:
+        return _icon_cache[key]
 
-    stroke = max(2, size // 28)
-    r = size // 6
-    pad = stroke + 1
+    s = _SUPERSAMPLE
+    W, H = size * s, int(size * 1.9) * s
+
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d   = ImageDraw.Draw(img)
+
+    stroke = max(2, size // 28) * s
+    r      = (size // 6) * s
+    pad    = stroke + s
 
     outline = (*color, 255)
     speaker = (*color, 180)
 
-    # ── Tělo – tenký obrys ─────────────────────────────────────────────
-    body = [pad, pad, w - pad - 1, h - pad - 1]
-    d.rounded_rectangle(body, radius=r,
-                         fill=(0, 0, 0, 0), outline=outline, width=stroke)
+    d.rounded_rectangle(
+        [pad, pad, W - pad - 1, H - pad - 1],
+        radius=r, fill=(0, 0, 0, 0), outline=outline, width=stroke,
+    )
 
-    # ── Reproduktor (krátká čára nahoře uprostřed) ─────────────────────
-    sp_w = size // 4
+    sp_w = (size // 4) * s
     sp_y = pad + r // 2
-    sp_x0 = w // 2 - sp_w // 2
-    sp_x1 = w // 2 + sp_w // 2
+    sp_x0 = W // 2 - sp_w // 2
+    sp_x1 = W // 2 + sp_w // 2
     d.rounded_rectangle(
         [sp_x0, sp_y - stroke, sp_x1, sp_y + stroke],
         radius=stroke, fill=speaker,
     )
 
-    return ctk.CTkImage(light_image=img, dark_image=img, size=(w, h))
+    result = ctk.CTkImage(light_image=img, dark_image=img, size=(size, int(size * 1.9)))
+    _icon_cache[key] = result
+    return result
 
 
 class DeviceDashboard(ctk.CTkFrame):
@@ -159,6 +174,9 @@ class DeviceDashboard(ctk.CTkFrame):
             self._conn_type.configure(text="")
 
     def _set_phone_color(self, color: tuple):
+        if getattr(self, "_current_phone_color", None) == color:
+            return
+        self._current_phone_color = color
         img = _make_phone_icon(size=140, color=color)
         self._phone_icon.configure(image=img)
         self._phone_icon._image = img  # udržet referenci
@@ -180,6 +198,9 @@ class DeviceDashboard(ctk.CTkFrame):
         self._set_badge(connected=False, loading=True)
 
     def show_device(self, info: dict):
+        # Přeskočit plný rebuild pokud se info nezměnilo (device-polling každých 5 s)
+        if info == self._current_info:
+            return
         self._current_info = info
         self._placeholder.grid_remove()
         self._set_phone_color((0, 200, 83))     # zelená

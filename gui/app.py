@@ -10,11 +10,15 @@ from .timeline import TimelinePanel
 from .wifi_dialog import WifiConnectDialog
 from .bypass_panel import BypassPanel
 from .map_panel import MapPanel
-from .result_detail import ResultDetailDialog
+from .backup_panel import BackupImportPanel
+from .results_panel import ResultsPanel
+from .ios_panel import iOSPanel
+from .ios_backup_panel import iOSBackupPanel
 from core.adb_manager import ADBManager
 from core.extractor import Extractor, EXTRACTION_MODULES
 from core.report import generate_report, generate_pdf_report, generate_excel_report
-from core.i18n import t, set_lang, get_lang
+from core.evidence import generate_manifest, verify_manifest, MANIFEST_TXT
+from core.i18n import t, set_lang, get_lang, retranslate
 
 
 ctk.set_appearance_mode("dark")
@@ -28,7 +32,7 @@ TEXT_MUTED = "#888888"
 
 
 def _detect_scale() -> float:
-    """Vrátí scale factor podle rozlišení primárního monitoru."""
+    """Return the scale factor based on the primary monitor resolution."""
     import tkinter as _tk
     root = _tk.Tk()
     root.withdraw()
@@ -47,14 +51,14 @@ class ForenziQApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        # Škálování podle rozlišení monitoru
+        # Scale based on monitor resolution
         self._scale = _detect_scale()
         if self._scale != 1.0:
             ctk.set_widget_scaling(self._scale)
             ctk.set_window_scaling(self._scale)
 
         self.title("Paranoid-Android-User-toolkit")
-        # Výchozí geometrie přizpůsobená rozlišení
+        # Default geometry adapted to resolution
         w = int(1280 * self._scale)
         h = int(800 * self._scale)
         self.geometry(f"{w}x{h}")
@@ -68,12 +72,13 @@ class ForenziQApp(ctk.CTk):
         self.output_dir = ""
         self._extraction_results: list = []
         self._current_view = "dashboard"
+        self._last_device_serials: list = []   # cache pro smart polling
 
         self._build_ui()
         self._check_adb()
         self._start_device_polling()
 
-    # ── UI stavba ────────────────────────────────────────────────────────────
+    # ── UI construction ──────────────────────────────────────────────────────
 
     def _build_ui(self):
         self.grid_columnconfigure(1, weight=1)
@@ -86,31 +91,34 @@ class ForenziQApp(ctk.CTk):
         sidebar = ctk.CTkFrame(self, width=sidebar_w, fg_color=BG_PANEL, corner_radius=0)
         sidebar.grid(row=0, column=0, sticky="nsew")
         sidebar.grid_propagate(False)
-        sidebar.grid_rowconfigure(14, weight=1)
+        sidebar.grid_rowconfigure(1, weight=1)   # nav scroll expands
         sidebar.grid_columnconfigure(0, weight=1)
 
-        # Logo
-        logo_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
+        # ── Top: logo + language (fixed) ──────────────────────────────────
+        top_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
+        top_frame.grid(row=0, column=0, sticky="ew")
+        top_frame.grid_columnconfigure(0, weight=1)
+
+        logo_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
         logo_frame.grid(row=0, column=0, padx=20, pady=(22, 4), sticky="w")
 
         ctk.CTkLabel(
             logo_frame, text="Paranoid-Android-",
-            font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"),
+            font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#ffffff"
         ).pack(anchor="w")
         ctk.CTkLabel(
             logo_frame, text="User-toolkit",
-            font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"),
+            font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#ffffff"
         ).pack(anchor="w")
         ctk.CTkLabel(
             logo_frame, text="v1.0",
-            font=ctk.CTkFont(family="Segoe UI", size=10),
+            font=ctk.CTkFont(size=10),
             text_color=TEXT_MUTED
         ).pack(anchor="w")
 
-        # Language switcher pod názvem
-        lang_frame_top = ctk.CTkFrame(sidebar, fg_color="transparent")
+        lang_frame_top = ctk.CTkFrame(top_frame, fg_color="transparent")
         lang_frame_top.grid(row=1, column=0, padx=20, pady=(0, 10), sticky="w")
         lang_frame_top.grid_columnconfigure((0, 1), weight=1)
 
@@ -130,20 +138,30 @@ class ForenziQApp(ctk.CTk):
         )
         self._btn_en.grid(row=0, column=1)
 
-        ctk.CTkFrame(sidebar, height=1, fg_color="#2a2a3e").grid(
+        ctk.CTkFrame(top_frame, height=1, fg_color="#2a2a3e").grid(
             row=2, column=0, sticky="ew", padx=15, pady=5)
 
-        # Navigace
+        # ── Middle: scrollable navigation ─────────────────────────────────
+        nav_scroll = ctk.CTkScrollableFrame(
+            sidebar, fg_color="transparent",
+            scrollbar_button_color="#2a2a4a",
+            scrollbar_button_hover_color="#3a3a6a",
+        )
+        nav_scroll.grid(row=1, column=0, sticky="nsew")
+        nav_scroll.grid_columnconfigure(0, weight=1)
+
         nav_items = [
             ("overview",   "nav.overview"),
             ("extraction", "nav.extraction"),
             ("results",    "nav.results"),
+            ("backup",     "nav.backup"),
+            ("ios",        "nav.ios"),
+            ("ios_backup", "nav.ios_backup"),
             ("comparison", "nav.comparison"),
             ("timeline",   "nav.timeline"),
             ("map",        "nav.map"),
             ("bypass",     "nav.bypass"),
         ]
-        # Map view keys (used internally) to nav keys
         self._nav_key_map = {
             "overview":   "dashboard",
             "extraction": "extraction",
@@ -152,40 +170,43 @@ class ForenziQApp(ctk.CTk):
             "timeline":   "timeline",
             "map":        "map",
             "bypass":     "bypass",
+            "backup":     "backup",
+            "ios":        "ios",
+            "ios_backup": "ios_backup",
         }
         self._nav_buttons = {}
 
-        for i, (nav_key, label_key) in enumerate(nav_items):
+        row = 0
+
+        for nav_key, label_key in nav_items:
             view_key = self._nav_key_map[nav_key]
             btn = ctk.CTkButton(
-                sidebar, text=t(label_key),
-                font=ctk.CTkFont(size=13),
+                nav_scroll, text=t(label_key),
+                font=ctk.CTkFont(size=14),
                 fg_color="transparent", text_color="#cccccc",
                 hover_color="#2a2a3e", anchor="w", height=42,
                 command=lambda k=view_key: self._navigate(k)
             )
-            btn.grid(row=i + 3, column=0, padx=10, pady=3, sticky="ew")
+            btn.grid(row=row, column=0, padx=8, pady=2, sticky="ew")
             self._nav_buttons[view_key] = btn
+            row += 1
 
-        ctk.CTkFrame(sidebar, height=1, fg_color="#2a2a3e").grid(
-            row=10, column=0, sticky="ew", padx=15, pady=10)
-
-        # Wi-Fi tlačítko
+        # Wi-Fi – same look as the other items
         self._wifi_btn = ctk.CTkButton(
-            sidebar, text=t("nav.wifi"),
-            font=ctk.CTkFont(size=12),
+            nav_scroll, text=t("nav.wifi"),
+            font=ctk.CTkFont(size=14),
             fg_color="transparent", text_color="#cccccc",
-            hover_color="#2a2a3e", anchor="w", height=38,
+            hover_color="#2a2a3e", anchor="w", height=42,
             command=self._open_wifi_dialog
         )
-        self._wifi_btn.grid(row=11, column=0, padx=10, pady=3, sticky="ew")
+        self._wifi_btn.grid(row=row, column=0, padx=8, pady=2, sticky="ew")
 
+        # ── Bottom: ADB status (fixed) ────────────────────────────────────
         ctk.CTkFrame(sidebar, height=1, fg_color="#2a2a3e").grid(
-            row=13, column=0, sticky="ew", padx=15, pady=5)
+            row=2, column=0, sticky="ew", padx=15)
 
-        # ADB status
         status_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
-        status_frame.grid(row=14, column=0, padx=15, pady=15, sticky="sw")
+        status_frame.grid(row=3, column=0, padx=15, pady=10, sticky="ew")
         self._adb_status_dot = ctk.CTkLabel(status_frame, text="●", text_color="#f44336",
                                              font=ctk.CTkFont(size=14))
         self._adb_status_dot.pack(side="left")
@@ -235,129 +256,119 @@ class ForenziQApp(ctk.CTk):
         self._content.grid_columnconfigure(0, weight=1)
         self._content.grid_rowconfigure(0, weight=1)
 
-        self._dashboard = DeviceDashboard(self._content, accent=ACCENT)
-        self._dashboard.grid(row=0, column=0, sticky="nsew")
+        # Lazy panel registry – panely se tvoří až při prvním navštívení záložky.
+        # Okamžitě se tvoří pouze dashboard (výchozí pohled).
+        self._view_panels: dict = {}
+        # Panely čekající na překlad – obnoví se líně až při přepnutí na ně
+        self._lang_dirty: set = set()
 
-        self._extraction_panel = ExtractionPanel(
-            self._content, accent=ACCENT,
-            on_start=self._start_extraction,
-            on_stop=self._stop_extraction
-        )
-
-        self._results_panel = self._build_results_panel()
-
-        self._comparison_panel = ComparisonPanel(self._content, accent=ACCENT)
-
-        self._timeline_panel = TimelinePanel(self._content, accent=ACCENT)
-
-        self._bypass_panel = BypassPanel(self._content, adb=self.adb, accent=ACCENT)
-        self._map_panel = MapPanel(self._content, accent=ACCENT)
-
+        self._dashboard = self._build_panel("dashboard")
         self._navigate("dashboard")
 
-    def _build_results_panel(self):
-        frame = ctk.CTkFrame(self._content, fg_color="transparent")
-        frame.grid_columnconfigure(0, weight=1)
-        frame.grid_rowconfigure(1, weight=1)
+    # ── Lazy panel factory ────────────────────────────────────────────────────
 
-        header = ctk.CTkFrame(frame, fg_color=BG_CARD, corner_radius=10)
-        header.grid(row=0, column=0, sticky="ew", pady=(0, 15))
-        header.grid_columnconfigure(1, weight=1)
+    def _build_panel(self, view: str):
+        """Vytvoří panel pro daný pohled, zaregistruje ho a vrátí instanci."""
+        if view in self._view_panels:
+            return self._view_panels[view]
 
-        ctk.CTkLabel(header, text=t("topbar.results"),
-                     font=ctk.CTkFont(size=14, weight="bold")).grid(
-            row=0, column=0, padx=20, pady=15, sticky="w"
-        )
+        if view == "dashboard":
+            p = DeviceDashboard(self._content, accent=ACCENT)
+            self._dashboard = p
+        elif view == "extraction":
+            p = ExtractionPanel(self._content, accent=ACCENT,
+                                on_start=self._start_extraction,
+                                on_stop=self._stop_extraction)
+            self._extraction_panel = p
+        elif view == "results":
+            p = ResultsPanel(self._content, accent=ACCENT,
+                             on_open_output=self._open_output_dir,
+                             on_html=self._open_report,
+                             on_pdf=self._export_pdf,
+                             on_excel=self._export_excel,
+                             on_evidence=self._generate_evidence,
+                             on_verify=self._verify_evidence)
+            self._results_panel = p
+        elif view == "comparison":
+            p = ComparisonPanel(self._content, accent=ACCENT)
+            self._comparison_panel = p
+        elif view == "timeline":
+            p = TimelinePanel(self._content, accent=ACCENT)
+            self._timeline_panel = p
+        elif view == "map":
+            p = MapPanel(self._content, accent=ACCENT)
+            self._map_panel = p
+        elif view == "bypass":
+            p = BypassPanel(self._content, adb=self.adb, accent=ACCENT)
+            self._bypass_panel = p
+        elif view == "backup":
+            p = BackupImportPanel(self._content, accent=ACCENT)
+            self._backup_panel = p
+        elif view == "ios":
+            p = iOSPanel(self._content, accent="#5AC8FA")
+            self._ios_panel = p
+        elif view == "ios_backup":
+            p = iOSBackupPanel(self._content, accent="#5AC8FA")
+            self._ios_backup_panel = p
+        else:
+            return None
 
-        btn_frame = ctk.CTkFrame(header, fg_color="transparent")
-        btn_frame.grid(row=0, column=2, padx=15)
-
-        self._btn_open_output = ctk.CTkButton(
-            btn_frame, text=t("topbar.open_output"),
-            width=120, height=30,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            command=self._open_output_dir
-        )
-        self._btn_open_output.pack(side="left", padx=4)
-
-        self._btn_html = ctk.CTkButton(
-            btn_frame, text=t("topbar.html_report"),
-            width=110, height=30,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            command=self._open_report
-        )
-        self._btn_html.pack(side="left", padx=4)
-
-        self._btn_pdf = ctk.CTkButton(
-            btn_frame, text=t("topbar.pdf_report"),
-            width=110, height=30,
-            fg_color=ACCENT, text_color="#000",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            command=self._export_pdf
-        )
-        self._btn_pdf.pack(side="left", padx=4)
-
-        self._btn_excel = ctk.CTkButton(
-            btn_frame, text=t("topbar.excel_report"),
-            width=110, height=30,
-            fg_color="#1D6F42", hover_color="#145230",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            command=self._export_excel
-        )
-        self._btn_excel.pack(side="left", padx=4)
-
-        self._results_list = ctk.CTkScrollableFrame(frame, fg_color="transparent")
-        self._results_list.grid(row=1, column=0, sticky="nsew")
-        self._results_list.grid_columnconfigure(0, weight=1)
-
-        ctk.CTkLabel(
-            self._results_list,
-            text="Zatím nebyla provedena žádná extrakce.",
-            text_color=TEXT_MUTED, font=ctk.CTkFont(size=13)
-        ).grid(row=0, column=0, pady=40)
-
-        return frame
+        p.grid(row=0, column=0, sticky="nsew")
+        self._view_panels[view] = p
+        return p
 
     # ── Navigace ─────────────────────────────────────────────────────────────
 
+    # Statická mapa pohledů – sestavena jednou, nikoli při každém přepnutí
+    _TITLES = {
+        "dashboard":  "topbar.dashboard",
+        "extraction": "topbar.extraction",
+        "results":    "topbar.results",
+        "comparison": "topbar.comparison",
+        "timeline":   "topbar.timeline",
+        "map":        "topbar.map",
+        "bypass":     "topbar.bypass",
+        "backup":     "topbar.backup",
+        "ios":        "topbar.ios",
+        "ios_backup": "topbar.ios_backup",
+    }
+
     def _navigate(self, view: str):
+        prev_view = self._current_view
         self._current_view = view
-        titles = {
-            "dashboard":  t("topbar.dashboard"),
-            "extraction": t("topbar.extraction"),
-            "results":    t("topbar.results"),
-            "comparison": t("topbar.comparison"),
-            "timeline":   t("topbar.timeline"),
-            "map":        t("topbar.map"),
-            "bypass":     t("topbar.bypass"),
-        }
-        panels = {
-            "dashboard":  self._dashboard,
-            "extraction": self._extraction_panel,
-            "results":    self._results_panel,
-            "comparison": self._comparison_panel,
-            "timeline":   self._timeline_panel,
-            "map":        self._map_panel,
-            "bypass":     self._bypass_panel,
-        }
-        self._topbar_title.configure(text=titles.get(view, ""))
+        self._topbar_title.configure(text=t(self._TITLES.get(view, "topbar.dashboard")))
 
-        for key, btn in self._nav_buttons.items():
-            btn.configure(
-                fg_color="#1e2a4a" if key == view else "transparent",
-                text_color=ACCENT if key == view else "#cccccc"
-            )
+        # Aktualizuj jen dvě tlačítka (předchozí + nové) místo všech 8
+        for key in (prev_view, view):
+            btn = self._nav_buttons.get(key)
+            if btn:
+                btn.configure(
+                    fg_color="#1e2a4a" if key == view else "transparent",
+                    text_color=ACCENT if key == view else "#cccccc",
+                )
 
-        for key, panel in panels.items():
-            if key == view:
-                panel.grid(row=0, column=0, sticky="nsew")
-            else:
-                panel.grid_remove()
+        # Lazy init – vytvoř panel pokud ještě neexistuje
+        if view not in self._view_panels:
+            self._build_panel(view)
 
-    # ── Jazyk ─────────────────────────────────────────────────────────────────
+        # Líný překlad – pokud panel čeká na obnovu jazyka, obnov ho až teď
+        if view in self._lang_dirty:
+            self._lang_dirty.discard(view)
+            panel = self._view_panels.get(view)
+            if panel is not None and hasattr(panel, "refresh_lang"):
+                panel.refresh_lang()
+
+        # Flush čekající překreslení před přepnutím → eliminuje trhání
+        self.update_idletasks()
+        self._view_panels[view].lift()
+
+    # ── Language ──────────────────────────────────────────────────────────────
 
     def _set_lang(self, lang: str):
+        old_lang = get_lang()
         set_lang(lang)
+        if old_lang != lang:
+            self._retranslate_widgets(self, old_lang, lang)
         # Update switcher button appearance
         if lang == "cs":
             self._btn_cs.configure(fg_color=ACCENT, text_color="#000")
@@ -366,6 +377,43 @@ class ForenziQApp(ctk.CTk):
             self._btn_en.configure(fg_color=ACCENT, text_color="#000")
             self._btn_cs.configure(fg_color="#2a2a4a", text_color="#cccccc")
         self._refresh_lang()
+
+    def _retranslate_widgets(self, widget, old_lang: str, new_lang: str):
+        """Walk the whole widget tree (incl. open dialogs) and swap every static
+        text that is an exact translation in the old language for the new one."""
+        stack = [widget]
+        while stack:
+            w = stack.pop()
+            try:
+                stack.extend(w.winfo_children())
+            except Exception:
+                pass
+            if not isinstance(w, ctk.CTkBaseClass):
+                continue
+            for attr in ("text", "placeholder_text"):
+                try:
+                    cur = w.cget(attr)
+                except Exception:
+                    continue
+                if isinstance(cur, str) and cur:
+                    new = retranslate(cur, old_lang, new_lang)
+                    if new is not None and new != cur:
+                        try:
+                            w.configure(**{attr: new})
+                        except Exception:
+                            pass
+            if isinstance(w, (ctk.CTkOptionMenu, ctk.CTkComboBox)):
+                try:
+                    vals = list(w.cget("values") or [])
+                    cur_val = w.get()
+                    new_vals = [retranslate(v, old_lang, new_lang) or v for v in vals]
+                    if new_vals != vals:
+                        w.configure(values=new_vals)
+                    nv = retranslate(cur_val, old_lang, new_lang)
+                    if nv is not None:
+                        w.set(nv)
+                except Exception:
+                    pass
 
     def _refresh_lang(self):
         # Nav buttons
@@ -377,12 +425,17 @@ class ForenziQApp(ctk.CTk):
             "timeline":   "nav.timeline",
             "map":        "nav.map",
             "bypass":     "nav.bypass",
+            "backup":     "nav.backup",
+            "ios":        "nav.ios",
+            "ios_backup": "nav.ios_backup",
         }
         for view_key, btn in self._nav_buttons.items():
             label_key = nav_label_keys.get(view_key, view_key)
             btn.configure(text=t(label_key))
         # Wifi button
         self._wifi_btn.configure(text=t("nav.wifi"))
+        # Ostatní panely obnov líně – jen viditelný hned (viz níže)
+        self._lang_dirty = set(self._view_panels.keys()) - {self._current_view}
         # Topbar title (re-navigate to current view)
         self._navigate(self._current_view)
         # ADB status — keep current color, just update text
@@ -392,18 +445,14 @@ class ForenziQApp(ctk.CTk):
         else:
             self._adb_status_label.configure(text=t("adb.unavailable"))
         # Topbar buttons
-        self._btn_open_output.configure(text=t("topbar.open_output"))
-        self._btn_html.configure(text=t("topbar.html_report"))
-        self._btn_pdf.configure(text=t("topbar.pdf_report"))
-        self._btn_excel.configure(text=t("topbar.excel_report"))
         self._btn_refresh.configure(text=t("topbar.refresh"))
-        # Panels
-        self._dashboard.refresh_lang()
-        self._extraction_panel.refresh_lang()
-        self._timeline_panel.refresh_lang()
-        self._comparison_panel.refresh_lang()
+        # Obnov pouze viditelný panel; ostatní (_lang_dirty) se obnoví až
+        # při přepnutí na ně – přepnutí jazyka tak nestaví všechny panely naráz.
+        panel = self._view_panels.get(self._current_view)
+        if panel is not None and hasattr(panel, "refresh_lang"):
+            panel.refresh_lang()
 
-    # ── ADB & zařízení ───────────────────────────────────────────────────────
+    # ── ADB & devices ────────────────────────────────────────────────────────
 
     def _check_adb(self):
         ok, _ = self.adb.check_adb()
@@ -419,7 +468,11 @@ class ForenziQApp(ctk.CTk):
     def _refresh_devices(self):
         def _worker():
             devices = self.adb.get_devices()
-            self.after(0, lambda: self._update_device_list(devices))
+            serials = [d["serial"] for d in devices]
+            # Aktualizuj UI jen pokud se seznam zařízení skutečně změnil
+            if serials != self._last_device_serials:
+                self._last_device_serials = serials
+                self.after(0, lambda d=devices: self._update_device_list(d))
         threading.Thread(target=_worker, daemon=True).start()
 
     def _update_device_list(self, devices: list[dict]):
@@ -460,7 +513,7 @@ class ForenziQApp(ctk.CTk):
     def _open_wifi_dialog(self):
         WifiConnectDialog(self, self.adb, on_connected=self._refresh_devices)
 
-    # ── Extrakce ─────────────────────────────────────────────────────────────
+    # ── Extraction ───────────────────────────────────────────────────────────
 
     def _start_extraction(self, modules: list[str]):
         if not self.adb.connected_device:
@@ -476,14 +529,14 @@ class ForenziQApp(ctk.CTk):
             initialdir=os.path.expanduser("~"),
         )
         if not base_dir:
-            return  # uživatel zrušil dialog
+            return  # user cancelled the dialog
 
         self.output_dir = os.path.join(base_dir, default_name)
         os.makedirs(self.output_dir, exist_ok=True)
 
         self.extractor = Extractor(self.adb, self.output_dir)
         self._extraction_panel.set_running(True)
-        device_label = (self.current_device or {}).get("model", "neznámé zařízení")
+        device_label = (self.current_device or {}).get("model", t("misc.unknown_device"))
         self._extraction_panel.log_session_start(device_label, len(modules))
 
         self.extractor.extract_all(
@@ -491,11 +544,24 @@ class ForenziQApp(ctk.CTk):
             on_progress=self._on_extraction_progress,
             on_done=self._on_extraction_done,
             on_module_done=self._on_extraction_module_done,
+            on_disconnected=lambda: self.after(
+                0, self._extraction_panel.log_disconnected
+            ),
+            on_reconnected=lambda: self.after(
+                0, self._extraction_panel.log_reconnected
+            ),
+            on_notify=lambda msg: self.after(
+                0, lambda m=msg: self._extraction_panel.log_notify(m)
+            ),
+            on_log=lambda msg: self.after(
+                0, lambda m=msg: self._extraction_panel.log_copy_progress(m)
+            ),
         )
 
     def _stop_extraction(self):
         if self.extractor:
             self.extractor.stop()
+            self._extraction_panel.log_stopping()
 
     def _on_extraction_progress(self, label: str, current: int, total: int):
         self.after(0, lambda: self._extraction_panel.update_progress(label, current, total))
@@ -517,16 +583,27 @@ class ForenziQApp(ctk.CTk):
 
     def _on_extraction_done(self, results):
         self._extraction_results = results
+        was_stopped = bool(self.extractor and self.extractor._stopped())
         report_path = ""
         try:
             report_path = generate_report(results, self.device_info, self.output_dir)
         except Exception as e:
             print(f"HTML report error: {e}")
-        self.after(0, lambda: self._finish_extraction(results, report_path))
+        self.after(0, lambda: self._finish_extraction(results, report_path, was_stopped))
 
-    def _finish_extraction(self, results, report_path: str):
+    def _finish_extraction(self, results, report_path: str, was_stopped: bool = False):
+        success_count = len([r for r in results if r.success])
         self._extraction_panel.set_running(False)
-        self._extraction_panel.show_done(len([r for r in results if r.success]))
+        if was_stopped:
+            self._extraction_panel.show_stopped(success_count)
+        else:
+            self._extraction_panel.show_done(success_count)
+        # Panels are created lazily – make sure they exist before we use them,
+        # otherwise a first extraction (before these tabs were ever opened)
+        # would hit a missing attribute and nothing would be shown.
+        self._build_panel("results")
+        self._build_panel("timeline")
+        self._build_panel("map")
         self._update_results_panel(results)
         if self.output_dir:
             self._timeline_panel.load_dir(self.output_dir)
@@ -534,49 +611,7 @@ class ForenziQApp(ctk.CTk):
         self._navigate("results")
 
     def _update_results_panel(self, results):
-        for widget in self._results_list.winfo_children():
-            widget.destroy()
-
-        if not results:
-            ctk.CTkLabel(self._results_list, text=t("misc.no_results"),
-                         text_color=TEXT_MUTED).grid(row=0, column=0, pady=40)
-            return
-
-        for i, r in enumerate(results):
-            card = ctk.CTkFrame(self._results_list, fg_color=BG_CARD, corner_radius=8,
-                                cursor="hand2")
-            card.grid(row=i, column=0, sticky="ew", pady=4)
-            card.grid_columnconfigure(1, weight=1)
-
-            color = "#4CAF50" if r.success else "#f44336"
-            ctk.CTkLabel(card, text="✓" if r.success else "✗",
-                         text_color=color, font=ctk.CTkFont(size=16, weight="bold"),
-                         width=35).grid(row=0, column=0, padx=(15, 5), pady=12)
-            ctk.CTkLabel(card, text=r.label, font=ctk.CTkFont(size=13),
-                         anchor="w").grid(row=0, column=1, sticky="w", pady=12)
-
-            info_text = f"{r.count} {t('res.records')}" if r.success else r.error
-            ctk.CTkLabel(card, text=info_text, text_color=TEXT_MUTED,
-                         font=ctk.CTkFont(size=12)).grid(row=0, column=2, padx=(0, 10))
-
-            # Tlačítko detail (jen u úspěšných s daty)
-            detail_btn = ctk.CTkButton(
-                card, text=t("res.detail_btn"),
-                width=80, height=28,
-                fg_color=ACCENT if r.success else "#2a2a4a",
-                text_color="#000" if r.success else TEXT_MUTED,
-                font=ctk.CTkFont(size=12),
-                state="normal" if r.success and r.data is not None else "disabled",
-                command=lambda res=r: ResultDetailDialog(self, res)
-            )
-            detail_btn.grid(row=0, column=3, padx=15, pady=8)
-
-            # Klik na celou kartu (ne na tlačítko, to má vlastní command)
-            if r.success and r.data is not None:
-                for widget in card.winfo_children():
-                    if widget is not detail_btn:
-                        widget.bind("<Button-1>",
-                                    lambda e, res=r: ResultDetailDialog(self, res))
+        self._results_panel.update_results(results)
 
     # ── Export PDF ───────────────────────────────────────────────────────────
 
@@ -616,7 +651,72 @@ class ForenziQApp(ctk.CTk):
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    # ── Pomocné ───────────────────────────────────────────────────────────────
+    # ── Evidence integrity / chain-of-custody ──────────────────────────────────
+
+    def _generate_evidence(self):
+        if not self.output_dir or not os.path.isdir(self.output_dir):
+            self._show_error(t("err.no_extraction"))
+            return
+        EvidenceCaseDialog(self, on_submit=self._do_generate_evidence)
+
+    def _do_generate_evidence(self, case_meta: dict):
+        def _worker():
+            try:
+                path, manifest = generate_manifest(
+                    self.output_dir, case_meta=case_meta, device_info=self.device_info
+                )
+                self.after(0, lambda: self._on_evidence_done(path, manifest))
+            except Exception as e:
+                self.after(0, lambda err=e: self._show_error(str(err)))
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_evidence_done(self, path: str, manifest: dict):
+        txt = os.path.join(self.output_dir, MANIFEST_TXT)
+        msg = t("ev.generated_msg").format(
+            n=manifest.get("file_count", 0),
+            agg=manifest.get("aggregate_sha256", "")[:16],
+        )
+        self._show_info(t("ev.generate_btn"), msg)
+        if os.path.exists(txt):
+            os.startfile(txt)
+
+    def _verify_evidence(self):
+        if not self.output_dir or not os.path.isdir(self.output_dir):
+            self._show_error(t("err.no_extraction"))
+            return
+
+        def _worker():
+            report = verify_manifest(self.output_dir)
+            self.after(0, lambda: self._on_verify_done(report))
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_verify_done(self, report: dict):
+        if report.get("error") == "no_manifest":
+            self._show_error(t("ev.err_no_manifest"))
+            return
+        if report.get("error"):
+            self._show_error(t("ev.err_bad_manifest"))
+            return
+
+        intact = report.get("intact")
+        head = t("ev.verify_ok") if intact else t("ev.verify_tampered")
+        lines = [
+            t("ev.verify_counts").format(
+                ok=len(report["ok"]), mod=len(report["modified"]),
+                miss=len(report["missing"]), add=len(report["added"]),
+            )
+        ]
+        for label_key, items in (
+            ("ev.row_modified", report["modified"]),
+            ("ev.row_missing",  report["missing"]),
+            ("ev.row_added",    report["added"]),
+        ):
+            if items:
+                shown = ", ".join(items[:8]) + (" …" if len(items) > 8 else "")
+                lines.append(f"{t(label_key)}: {shown}")
+        self._show_info(head, "\n".join(lines), ok=bool(intact))
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _open_output_dir(self):
         if self.output_dir and os.path.exists(self.output_dir):
@@ -636,3 +736,80 @@ class ForenziQApp(ctk.CTk):
         dialog.grab_set()
         ctk.CTkLabel(dialog, text=msg, wraplength=330).pack(padx=20, pady=20)
         ctk.CTkButton(dialog, text="OK", command=dialog.destroy).pack(pady=10)
+
+    def _show_info(self, title: str, msg: str, ok: bool = True):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title(title)
+        dialog.geometry("520x240")
+        dialog.grab_set()
+        ctk.CTkLabel(
+            dialog, text=title,
+            font=ctk.CTkFont(size=15, weight="bold"),
+            text_color="#4CAF50" if ok else "#f44336",
+        ).pack(padx=20, pady=(18, 6))
+        ctk.CTkLabel(
+            dialog, text=msg, wraplength=470, justify="left",
+        ).pack(padx=20, pady=(0, 10))
+        ctk.CTkButton(dialog, text="OK", command=dialog.destroy).pack(pady=8)
+
+
+class EvidenceCaseDialog(ctk.CTkToplevel):
+    """Collect chain-of-custody metadata before generating the evidence manifest."""
+
+    FIELDS = [
+        ("case_number", "ev.f_case"),
+        ("examiner",    "ev.f_examiner"),
+        ("organization", "ev.f_org"),
+        ("evidence_id", "ev.f_evidence_id"),
+        ("note",        "ev.f_note"),
+    ]
+
+    def __init__(self, master, on_submit):
+        super().__init__(master)
+        self._on_submit = on_submit
+        self.title(t("ev.dialog_title"))
+        self.geometry("460x360")
+        self.grab_set()
+        self.configure(fg_color=BG_DARK)
+
+        ctk.CTkLabel(
+            self, text=t("ev.dialog_title"),
+            font=ctk.CTkFont(size=15, weight="bold"),
+        ).pack(padx=20, pady=(18, 4))
+        ctk.CTkLabel(
+            self, text=t("ev.dialog_hint"),
+            font=ctk.CTkFont(size=11), text_color=TEXT_MUTED,
+            wraplength=410, justify="left",
+        ).pack(padx=20, pady=(0, 10))
+
+        form = ctk.CTkFrame(self, fg_color="transparent")
+        form.pack(padx=20, fill="x")
+        form.grid_columnconfigure(1, weight=1)
+
+        self._entries: dict = {}
+        for i, (key, label_key) in enumerate(self.FIELDS):
+            ctk.CTkLabel(
+                form, text=t(label_key), anchor="w",
+                font=ctk.CTkFont(size=12), width=120,
+            ).grid(row=i, column=0, sticky="w", pady=4, padx=(0, 8))
+            entry = ctk.CTkEntry(form, height=30)
+            entry.grid(row=i, column=1, sticky="ew", pady=4)
+            self._entries[key] = entry
+
+        btns = ctk.CTkFrame(self, fg_color="transparent")
+        btns.pack(pady=16)
+        ctk.CTkButton(
+            btns, text=t("ev.cancel"), width=100,
+            fg_color="#2a2a4a", hover_color="#3a3a5a",
+            command=self.destroy,
+        ).pack(side="left", padx=6)
+        ctk.CTkButton(
+            btns, text=t("ev.generate_btn"), width=140,
+            fg_color=ACCENT, text_color="#000",
+            command=self._submit,
+        ).pack(side="left", padx=6)
+
+    def _submit(self):
+        meta = {k: e.get().strip() for k, e in self._entries.items()}
+        self.destroy()
+        self._on_submit(meta)

@@ -4,6 +4,7 @@ import threading
 import datetime
 from typing import Callable, Optional
 from .adb_manager import ADBManager
+from .i18n import t, has
 
 
 EXTRACTION_MODULES = {
@@ -21,11 +22,14 @@ EXTRACTION_MODULES = {
     "file_analysis":  "Analýza souborů (EXIF a metadata)",
     "file_hashes":    "Hashe souborů (MD5, SHA-256)",
     "deleted_data":   "Smazaná data (root)",
+    "whatsapp":       "WhatsApp (root)",
+    "viber":          "Viber (root)",
 }
 
 # Agentní moduly – rozšířená extrakce pro novější Android
 AGENT_MODULES = {
     "adb_backup":    "ADB záloha aplikací",
+    "root_backup":   "Root záloha /data/data (Android 12+)",
     "app_providers": "Data aplikací (Content Providers)",
     "usage_stats":   "Statistiky použití aplikací",
     "termux_agent":  "Termux Agent",
@@ -33,9 +37,14 @@ AGENT_MODULES = {
 
 
 class ExtractionResult:
+    @property
+    def label(self) -> str:
+        if has(f"mod.{self.module}"):
+            return t(f"mod.{self.module}")
+        return EXTRACTION_MODULES.get(self.module) or AGENT_MODULES.get(self.module, self.module)
+
     def __init__(self, module: str):
         self.module = module
-        self.label = EXTRACTION_MODULES.get(module) or AGENT_MODULES.get(module, module)
         self.success = False
         self.data = None
         self.error = ""
@@ -48,6 +57,22 @@ class Extractor:
         self.adb = adb
         self.output_dir = output_dir
         self._stop_event = threading.Event()
+        self._on_notify: Optional[Callable[[str], None]] = None
+        self._on_log: Optional[Callable[[str], None]] = None
+
+    def _log(self, msg: str):
+        if self._on_log:
+            self._on_log(msg)
+
+    @staticmethod
+    def _fmt_size(n: int) -> str:
+        if n >= 1_073_741_824:
+            return f"{n / 1_073_741_824:.1f} GB"
+        if n >= 1_048_576:
+            return f"{n / 1_048_576:.1f} MB"
+        if n >= 1024:
+            return f"{n / 1024:.1f} KB"
+        return f"{n} B"
 
     def stop(self):
         self._stop_event.set()
@@ -58,34 +83,74 @@ class Extractor:
     def extract_all(self, modules: list[str],
                     on_progress: Callable[[str, int, int], None],
                     on_done: Callable[[list[ExtractionResult]], None],
-                    on_module_done: Callable = None):
-        """Spustí extrakci vybraných modulů v novém vlákně.
+                    on_module_done: Callable = None,
+                    on_disconnected: Callable = None,
+                    on_reconnected: Callable = None,
+                    on_notify: Callable[[str], None] = None,
+                    on_log: Callable[[str], None] = None):
+        """Run extraction of selected modules in a new thread.
 
         on_module_done(result, current, total, elapsed_sec, avg_elapsed_sec)
+        on_disconnected() – called when device loss is detected (from worker thread)
+        on_reconnected()  – called when device comes back   (from worker thread)
         """
         self._stop_event.clear()
+        self._on_notify = on_notify
+        self._on_log = on_log
+
+        def _ensure_connected() -> bool:
+            """Block until the device is back online or stop is requested.
+            Returns True on reconnection, False if the user stopped extraction."""
+            import time
+            if self.adb.is_connected():
+                return True
+            if on_disconnected:
+                on_disconnected()
+            while not self._stopped():
+                time.sleep(2)
+                if self.adb.is_connected():
+                    if on_reconnected:
+                        on_reconnected()
+                    return True
+            return False
 
         def _worker():
             results = []
             total = len(modules)
             elapsed_times = []
+            i = 0
 
-            for i, module in enumerate(modules):
+            while i < total:
                 if self._stopped():
                     break
-                label = EXTRACTION_MODULES.get(module, module)
+
+                # Pause here if device is not reachable
+                if not _ensure_connected():
+                    break
+
+                module = modules[i]
+                label = t(f"mod.{module}") if has(f"mod.{module}") else module
                 on_progress(label, i + 1, total)
 
                 t_start = datetime.datetime.now()
                 result = self._extract_module(module)
                 elapsed = (datetime.datetime.now() - t_start).total_seconds()
-                elapsed_times.append(elapsed)
 
+                # If the module failed, check whether it was caused by a disconnect.
+                # If so, wait for reconnection and retry the same module.
+                if not result.success and not self.adb.is_connected():
+                    if not _ensure_connected():
+                        break
+                    continue  # retry this module index
+
+                elapsed_times.append(elapsed)
                 results.append(result)
 
                 if on_module_done:
                     avg = sum(elapsed_times) / len(elapsed_times)
                     on_module_done(result, i + 1, total, elapsed, avg)
+
+                i += 1
 
             on_done(results)
 
@@ -98,7 +163,7 @@ class Extractor:
             if method:
                 method(result)
             else:
-                result.error = "Modul není implementován"
+                result.error = t("x.not_implemented")
         except Exception as e:
             result.error = str(e)
         return result
@@ -166,7 +231,7 @@ class Extractor:
             if m_date:
                 ts = int(m_date.group(1)) // 1000
                 row["date"] = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
-            row["direction"] = "Přijaté" if row.get("type") == "1" else "Odeslané"
+            row["direction"] = t("val.sms_received") if row.get("type") == "1" else t("val.sms_sent")
             if row:
                 messages.append(row)
 
@@ -187,7 +252,7 @@ class Extractor:
             "--projection number:date:duration:type"
         )
         calls = []
-        type_map = {"1": "Příchozí", "2": "Odchozí", "3": "Zmeškaný"}
+        type_map = {"1": t("val.call_incoming"), "2": t("val.call_outgoing"), "3": t("val.call_missed")}
         for line in out.split("\n"):
             line = line.strip()
             if "Row:" not in line:
@@ -242,28 +307,63 @@ class Extractor:
 
     # ── Media ────────────────────────────────────────────────────────────────
 
+    # Image/video extensions pulled by the media module
+    MEDIA_EXTS = (
+        "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "dng",
+        "tiff", "tif", "mp4", "3gp", "3g2", "mov", "avi", "mkv", "webm", "m4v", "mpg",
+    )
+
     def _extract_media(self, r: ExtractionResult):
         media_dir = os.path.join(self.output_dir, "media")
         os.makedirs(media_dir, exist_ok=True)
 
-        # Získej seznam souborů
+        # Prohledej i /sdcard/Android/media (tam ukládají média aplikace jako
+        # WhatsApp, Telegram apod.). Filtruj podle přípon, aby se z aplikačních
+        # složek netahaly databáze a cache; vynech systémové náhledy.
+        roots = "/sdcard/DCIM /sdcard/Pictures /sdcard/Movies /sdcard/Android/media"
+        name_clause = " -o ".join(f"-iname '*.{ext}'" for ext in self.MEDIA_EXTS)
         paths_raw = self.adb.shell(
-            "find /sdcard/DCIM /sdcard/Pictures /sdcard/Movies "
-            "-type f 2>/dev/null"
+            f"find {roots} -type f \\( {name_clause} \\) "
+            "! -path '*/.thumbnails/*' ! -path '*/.thumbnail/*' "
+            "! -path '*/cache/*' ! -path '*/.cache/*' 2>/dev/null"
         )
         files = [p.strip() for p in paths_raw.split("\n") if p.strip()]
+        total = len(files)
+        self._log(f"Nalezeno {total} mediálních souborů – zahajuji kopírování…")
 
         pulled = 0
+        failed: list[str] = []
+        used_names: set[str] = set()
         for remote_path in files:
             if self._stopped():
                 break
+            # Zachovej jedinečný název (soubory ze stejného jména v různých
+            # složkách by se jinak navzájem přepsaly).
             filename = os.path.basename(remote_path)
+            if filename in used_names:
+                stem, ext = os.path.splitext(filename)
+                parent = os.path.basename(os.path.dirname(remote_path))
+                filename = f"{stem}_{parent}{ext}"
+                n = 1
+                while filename in used_names:
+                    filename = f"{stem}_{parent}_{n}{ext}"
+                    n += 1
+            used_names.add(filename)
             local_path = os.path.join(media_dir, filename)
             if self.adb.pull(remote_path, local_path):
                 pulled += 1
+            else:
+                failed.append(remote_path)
+            if pulled % 20 == 0 or pulled == total:
+                remaining = total - pulled
+                self._log(f"  Zkopírováno {pulled}/{total} souborů  (zbývá {remaining})")
+
+        if failed:
+            self._log(f"  ⚠ {len(failed)} souborů se nepodařilo stáhnout (originály).")
 
         # Ulož manifest
-        manifest = {"total_found": len(files), "total_pulled": pulled, "files": files}
+        manifest = {"total_found": len(files), "total_pulled": pulled,
+                    "total_failed": len(failed), "failed": failed, "files": files}
         path = os.path.join(self.output_dir, "media_manifest.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(manifest, f, ensure_ascii=False, indent=2)
@@ -286,6 +386,8 @@ class Extractor:
             timeout=60
         )
         files = [p.strip() for p in paths_raw.split("\n") if p.strip()]
+        total = len(files)
+        self._log(f"Nalezeno {total} dokumentů – zahajuji kopírování…")
 
         pulled = 0
         for remote_path in files:
@@ -295,6 +397,8 @@ class Extractor:
             local_path = os.path.join(docs_dir, filename)
             if self.adb.pull(remote_path, local_path):
                 pulled += 1
+            remaining = total - pulled
+            self._log(f"  [{pulled}/{total}] {filename}  (zbývá {remaining})")
 
         manifest = {"total_found": len(files), "total_pulled": pulled, "files": files}
         path = os.path.join(self.output_dir, "documents_manifest.json")
@@ -385,54 +489,65 @@ class Extractor:
 
     def _extract_user_data_tree(self, r: ExtractionResult):
         """
-        Stáhne uživatelská data z /sdcard se zachováním původní adresářové struktury.
-        Používá `adb pull /sdcard/ <cíl>` — Android zachová celou hierarchii.
-        Systémové složky (Android/data, Android/obb) jsou přeskočeny.
+        Stáhne KOMPLETNÍ obsah /sdcard se zachováním adresářové struktury,
+        včetně složky Android (Android/media, a co je dostupné z Android/data,
+        Android/obb). Nic se záměrně nevynechává.
+
+        Postupuje po položkách nejvyšší úrovně kvůli průběžnému logu a odolnosti
+        (chyba v jedné složce nezastaví ostatní). Výsledný počet se spočítá
+        z reálně stažených souborů na disku, takže je deterministický.
         """
         tree_dir = os.path.join(self.output_dir, "user_data_tree")
         os.makedirs(tree_dir, exist_ok=True)
 
-        # Zjisti seznam složek v /sdcard (jedna úroveň)
-        ls_out = self.adb.shell("ls /sdcard/")
-        folders = [f.strip() for f in ls_out.split("\n") if f.strip()]
+        # Seznam všech položek v /sdcard včetně skrytých (-A), bez . a ..
+        ls_out = self.adb.shell("ls -A /sdcard/ 2>/dev/null")
+        entries = [f.strip() for f in ls_out.split("\n")
+                   if f.strip() and f.strip() not in (".", "..")]
 
-        # Přeskoč systémové složky Androidu
-        skip = {"Android"}
+        total = len(entries)
+        self._log(f"Nalezeno {total} položek v /sdcard – stahuji KOMPLETNÍ strukturu…")
 
-        pulled_files = 0
-        pulled_folders = 0
-        skipped = []
         manifest_entries = []
+        errors = []
 
-        for folder in folders:
+        for i, name in enumerate(entries, 1):
             if self._stopped():
                 break
 
-            if folder in skip:
-                skipped.append(folder)
-                continue
+            remote = f"/sdcard/{name}"
+            local = os.path.join(tree_dir, name)
 
-            remote = f"/sdcard/{folder}"
-            local  = os.path.join(tree_dir, folder)
-            os.makedirs(local, exist_ok=True)
-
-            ok = self.adb.pull(remote, local, timeout=600)
+            self._log(f"  [{i}/{total}] Kopíruji: {name}")
+            ok, err_msg = self.adb.pull_err(remote, local, timeout=None)
             if ok:
-                pulled_folders += 1
-                # Spočítej stažené soubory
-                for _, _, files in os.walk(local):
-                    pulled_files += len(files)
+                self._log(f"    ✓ {name}")
+            else:
+                # adb pull může část složky stáhnout i při chybě (např. Android/data
+                # s omezeným přístupem) – proto to NEbereme jako důvod k přeskočení.
+                errors.append({"path": remote, "error": err_msg})
+                self._log(f"    ⚠ {name} – částečně/nedostupné: {err_msg}")
             manifest_entries.append({
                 "remote_path": remote,
                 "local_path":  local,
-                "status":      "ok" if ok else "error",
+                "status":      "ok" if ok else "partial",
             })
+
+        # Deterministický počet: spočítej, co je skutečně na disku
+        pulled_files = sum(len(files) for _, _, files in os.walk(tree_dir))
+        pulled_folders = sum(1 for _, dirs, _ in os.walk(tree_dir) for _ in dirs)
+
+        if errors:
+            self._log(f"  ⚠ {len(errors)} položek se nepodařilo stáhnout kompletně "
+                      f"(obvykle Android/data a Android/obb kvůli omezením systému).")
 
         manifest = {
             "source":          "/sdcard",
+            "complete_tree":   True,
+            "top_level_items": total,
             "pulled_folders":  pulled_folders,
             "pulled_files":    pulled_files,
-            "skipped_folders": skipped,
+            "errors":          errors,
             "entries":         manifest_entries,
         }
         manifest_path = os.path.join(self.output_dir, "user_data_tree_manifest.json")
@@ -775,6 +890,139 @@ class Extractor:
 
     # ── Deleted Data (root) ───────────────────────────────────────────────────
 
+    # ── Messaging apps (WhatsApp / Viber) – root required ────────────────────
+
+    def _is_rooted(self) -> bool:
+        out = self.adb.shell("su -c 'id' 2>/dev/null || su 0 id 2>/dev/null")
+        return "uid=0" in out
+
+    def _su_pull_file(self, remote: str, local: str) -> bool:
+        """Copy a root-protected file to /sdcard via su, then adb pull it."""
+        tmp = f"/sdcard/_pa_tmp_{os.path.basename(remote)}"
+        self.adb.shell(f"su -c 'cp \"{remote}\" \"{tmp}\" 2>/dev/null'")
+        self.adb.shell(f"su -c 'chmod 666 \"{tmp}\" 2>/dev/null'")
+        ok = self.adb.pull(tmp, local)
+        self.adb.shell(f"rm -f '{tmp}' 2>/dev/null")
+        return ok and os.path.exists(local)
+
+    @staticmethod
+    def _unix_ms(ts) -> str:
+        """Format a Unix timestamp (seconds or milliseconds) as a string."""
+        if not ts:
+            return ""
+        try:
+            val = float(ts)
+            if val > 1_000_000_000_000:   # milliseconds
+                val /= 1000.0
+            return datetime.datetime.fromtimestamp(val).strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return str(ts)
+
+    def _extract_whatsapp(self, r: ExtractionResult):
+        import sqlite3 as _sqlite3
+        if not self._is_rooted():
+            r.error = t("x.no_root_whatsapp")
+            r.success = False
+            return
+        local = os.path.join(self.output_dir, "msgstore.db")
+        self._log(t("x.copying").format(name="msgstore.db"))
+        if not self._su_pull_file(
+            "/data/data/com.whatsapp/databases/msgstore.db", local
+        ):
+            r.error = t("x.whatsapp_pull_failed")
+            r.success = False
+            return
+        data: list[dict] = []
+        try:
+            conn = _sqlite3.connect(local)
+            conn.row_factory = _sqlite3.Row
+            cur = conn.cursor()
+            # Modern schema (WhatsApp 2021+): message + chat + jid
+            try:
+                cur.execute("""
+                    SELECT m.timestamp AS ts, m.from_me AS from_me,
+                           m.text_data AS body, j.user AS jid
+                    FROM message m
+                    LEFT JOIN chat c ON m.chat_row_id = c._id
+                    LEFT JOIN jid  j ON c.jid_row_id  = j._id
+                    WHERE m.text_data IS NOT NULL
+                    ORDER BY m.timestamp DESC LIMIT 5000
+                """)
+                rows = cur.fetchall()
+            except Exception:
+                # Legacy schema: messages table
+                cur.execute("""
+                    SELECT timestamp AS ts, key_from_me AS from_me,
+                           data AS body, key_remote_jid AS jid
+                    FROM messages
+                    WHERE data IS NOT NULL
+                    ORDER BY timestamp DESC LIMIT 5000
+                """)
+                rows = cur.fetchall()
+            for row in rows:
+                data.append({
+                    "date":    self._unix_ms(row["ts"]),
+                    "chat":    row["jid"] or "",
+                    "from_me": t("val.yes") if row["from_me"] else t("val.no"),
+                    "body":    row["body"] or "",
+                })
+            conn.close()
+        except Exception as e:
+            r.error = str(e)
+        path = os.path.join(self.output_dir, "whatsapp.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        r.data = data
+        r.file_path = path
+        r.count = len(data)
+        r.success = bool(data)
+        if not data and not r.error:
+            r.error = t("x.no_whatsapp")
+
+    def _extract_viber(self, r: ExtractionResult):
+        import sqlite3 as _sqlite3
+        if not self._is_rooted():
+            r.error = t("x.no_root_viber")
+            r.success = False
+            return
+        local = os.path.join(self.output_dir, "viber_messages.db")
+        self._log(t("x.copying").format(name="viber_messages"))
+        if not self._su_pull_file(
+            "/data/data/com.viber.voip/databases/viber_messages", local
+        ):
+            r.error = t("x.viber_pull_failed")
+            r.success = False
+            return
+        data: list[dict] = []
+        try:
+            conn = _sqlite3.connect(local)
+            conn.row_factory = _sqlite3.Row
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT date, body, send_type
+                FROM messages
+                WHERE body IS NOT NULL AND body <> ''
+                ORDER BY date DESC LIMIT 5000
+            """)
+            for row in cur.fetchall():
+                data.append({
+                    "date":    self._unix_ms(row["date"]),
+                    "body":    row["body"] or "",
+                    "from_me": t("val.yes") if (row["send_type"] or 0) else t("val.no"),
+                })
+            conn.close()
+        except Exception as e:
+            r.error = str(e)
+        path = os.path.join(self.output_dir, "viber.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        r.data = data
+        r.file_path = path
+        r.count = len(data)
+        r.success = bool(data)
+        if not data and not r.error:
+            r.error = t("x.no_viber")
+
     def _extract_deleted_data(self, r: ExtractionResult):
         """
         Obnova smazaných dat z rootovaného zařízení.
@@ -814,7 +1062,7 @@ class Extractor:
         results["root_available"] = is_rooted
 
         if not is_rooted:
-            r.error = "Root přístup není dostupný — smazaná data nelze obnovit."
+            r.error = t("x.no_root_deleted")
             r.success = False
             r.count = 0
             path = os.path.join(self.output_dir, "deleted_data.json")
@@ -880,7 +1128,7 @@ class Extractor:
                         "SELECT address, date, body, type "
                         "FROM sms WHERE deleted=1"
                     )
-                    type_map = {"1": "Přijaté", "2": "Odeslané"}
+                    type_map = {"1": t("val.sms_received"), "2": t("val.sms_sent")}
                     for row in cur.fetchall():
                         entry = dict(row)
                         try:
@@ -890,7 +1138,7 @@ class Extractor:
                             )
                         except Exception:
                             pass
-                        entry["direction"] = type_map.get(str(entry.get("type")), "Neznámý")
+                        entry["direction"] = type_map.get(str(entry.get("type")), t("val.unknown"))
                         entry["recovery_method"] = "deleted_flag"
                         results["recovered"]["sms"].append(entry)
                 except Exception as e:
@@ -943,7 +1191,7 @@ class Extractor:
                 ]:
                     try:
                         cur.execute(calls_table_query)
-                        type_map = {"1": "Příchozí", "2": "Odchozí", "3": "Zmeškaný"}
+                        type_map = {"1": t("val.call_incoming"), "2": t("val.call_outgoing"), "3": t("val.call_missed")}
                         for row in cur.fetchall():
                             entry = dict(row)
                             try:
@@ -987,7 +1235,7 @@ class Extractor:
                             "SELECT number, date, duration, type "
                             "FROM calls WHERE deleted=1"
                         )
-                        type_map = {"1": "Příchozí", "2": "Odchozí", "3": "Zmeškaný"}
+                        type_map = {"1": t("val.call_incoming"), "2": t("val.call_outgoing"), "3": t("val.call_missed")}
                         for row in cur.fetchall():
                             entry = {
                                 "number": row[0], "date": row[1],
@@ -1067,6 +1315,10 @@ class Extractor:
         extracted_dir = os.path.join(self.output_dir, "adb_backup_extracted")
         os.makedirs(extracted_dir, exist_ok=True)
 
+        # Upozornit uživatele, aby potvrdil zálohu na zařízení
+        if self._on_notify:
+            self._on_notify(t("x.ab_confirm"))
+
         # Spustit zálohu – uživatel musí potvrdit na zařízení
         self.adb._run(
             ["-s", self.adb.connected_device,
@@ -1074,11 +1326,8 @@ class Extractor:
             timeout=300,
         )
 
-        if not os.path.exists(backup_path) or os.path.getsize(backup_path) < 24:
-            r.error = (
-                "Záloha se nezdařila nebo nebyla potvrzena na zařízení. "
-                "Na displeji telefonu klikněte na 'Zálohovat data'."
-            )
+        if not os.path.exists(backup_path) or os.path.getsize(backup_path) < 4:
+            r.error = t("x.ab_failed")
             return
 
         # ── Parsování .ab souboru ─────────────────────────────────────────────
@@ -1086,20 +1335,25 @@ class Extractor:
             with open(backup_path, "rb") as f:
                 magic = f.readline()
                 if b"ANDROID BACKUP" not in magic:
-                    r.error = "Neplatný formát zálohy (.ab)"
+                    r.error = t("x.ab_invalid")
                     return
                 f.readline()                         # verze
                 compressed = f.readline().strip() == b"1"
                 encryption = f.readline().strip()
 
                 if encryption != b"none":
-                    r.error = (
-                        "Záloha je šifrována heslem – nelze parsovat bez hesla. "
-                        "Zkuste zálohu bez hesla."
-                    )
+                    r.error = t("x.ab_encrypted")
                     return
 
                 raw = f.read()
+
+            # Prázdná záloha – Android 12+ blokuje adb backup pro většinu aplikací
+            if not raw:
+                msg = t("x.ab_empty") + "\n" + t("x.skip")
+                if self._on_notify:
+                    self._on_notify(msg)
+                r.error = msg
+                return
 
             data = zlib.decompress(raw) if compressed else raw
             tar = tarfile.open(fileobj=io.BytesIO(data))
@@ -1118,7 +1372,10 @@ class Extractor:
                     pass
 
         except zlib.error:
-            r.error = "Chyba dekomprese zálohy – záloha je prázdná nebo poškozená."
+            msg = t("x.ab_corrupt") + "\n" + t("x.skip")
+            if self._on_notify:
+                self._on_notify(msg)
+            r.error = msg
             return
         except Exception as e:
             r.error = str(e)
@@ -1158,6 +1415,152 @@ class Extractor:
         }
 
         path = os.path.join(self.output_dir, "adb_backup_summary.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(summary, f, ensure_ascii=False, indent=2)
+
+        r.data = summary
+        r.file_path = path
+        r.success = True
+        r.count = len(extracted_files)
+
+    # ── Root Backup /data/data ────────────────────────────────────────────────
+
+    def _extract_root_backup(self, r: ExtractionResult):
+        """
+        Záloha kompletního /data/data přes 'adb shell su -c tar'.
+        Vyžaduje rootnuté zařízení. Funguje na Android 5–15 včetně Android 12+,
+        kde 'adb backup' nefunguje.
+        Postup:
+          1. Ověří root přístup (su -c id).
+          2. Vytvoří tar.gz na zařízení do /sdcard/forenziq_root.tar.gz.
+          3. Stáhne soubor přes adb pull.
+          4. Extrahuje, vypíše soubory a parsuje nalezené SQLite databáze.
+          5. Smaže dočasný soubor ze zařízení.
+        """
+        import tarfile
+        import io
+        import sqlite3 as _sqlite3
+
+        REMOTE_ARCHIVE = "/sdcard/forenziq_root.tar.gz"
+        local_archive  = os.path.join(self.output_dir, "root_backup.tar.gz")
+        extracted_dir  = os.path.join(self.output_dir, "root_backup_extracted")
+        os.makedirs(extracted_dir, exist_ok=True)
+
+        # ── 1. Ověření root přístupu ──────────────────────────────────────────
+        if self._on_notify:
+            self._on_notify(t("x.root_checking"))
+
+        rc, out, err = self.adb._run(
+            ["-s", self.adb.connected_device, "shell", "su -c id"],
+            timeout=15,
+        )
+        if rc != 0 or "uid=0" not in out:
+            msg = t("x.root_missing") + "\n" + t("x.skip")
+            if self._on_notify:
+                self._on_notify(msg)
+            r.error = msg
+            return
+
+        if self._on_notify:
+            self._on_notify(t("x.root_ok"))
+
+        # ── 2. Vytvoření tar archivu na zařízení ──────────────────────────────
+        # Ignorujeme chyby čtení (některé soubory jsou zamčené systémem)
+        rc, out, err = self.adb._run(
+            ["-s", self.adb.connected_device, "shell",
+             f"su -c 'tar -czf {REMOTE_ARCHIVE} /data/data/ 2>/dev/null; echo DONE'"],
+            timeout=600,
+        )
+        if "DONE" not in out and rc != 0:
+            msg = t("x.tar_failed").format(err=err or out or t("val.unknown_error")) + "\n" + t("x.skip")
+            if self._on_notify:
+                self._on_notify(msg)
+            r.error = msg
+            return
+
+        # ── 3. Stažení archivu ────────────────────────────────────────────────
+        if self._on_notify:
+            self._on_notify(t("x.pulling"))
+
+        pulled = self.adb.pull(REMOTE_ARCHIVE, local_archive, timeout=600)
+        if not pulled or not os.path.exists(local_archive) or os.path.getsize(local_archive) < 32:
+            msg = t("x.pull_failed") + "\n" + t("x.skip")
+            if self._on_notify:
+                self._on_notify(msg)
+            r.error = msg
+            # Cleanup remote even on failure
+            self.adb._run(
+                ["-s", self.adb.connected_device, "shell",
+                 f"su -c 'rm -f {REMOTE_ARCHIVE}'"],
+                timeout=15,
+            )
+            return
+
+        # ── 4. Extrakce a parsování ───────────────────────────────────────────
+        if self._on_notify:
+            self._on_notify(t("x.parsing"))
+
+        extracted_files = []
+        db_files = []
+        try:
+            with tarfile.open(local_archive, "r:gz") as tar:
+                for member in tar.getmembers():
+                    if self._stopped():
+                        break
+                    try:
+                        tar.extract(member, extracted_dir, set_attrs=False)
+                        extracted_files.append(member.name)
+                        if member.name.endswith(".db"):
+                            db_files.append(os.path.join(extracted_dir, member.name))
+                    except Exception:
+                        pass
+        except Exception as e:
+            msg = t("x.extract_failed").format(e=e) + "\n" + t("x.skip")
+            if self._on_notify:
+                self._on_notify(msg)
+            r.error = msg
+            return
+        finally:
+            # ── 5. Smazání dočasného souboru ze zařízení ──────────────────────
+            self.adb._run(
+                ["-s", self.adb.connected_device, "shell",
+                 f"su -c 'rm -f {REMOTE_ARCHIVE}'"],
+                timeout=15,
+            )
+
+        # ── Parsování SQLite databází ─────────────────────────────────────────
+        db_results = {}
+        for db_path in db_files:
+            if self._stopped():
+                break
+            db_name = os.path.relpath(db_path, extracted_dir)
+            try:
+                conn = _sqlite3.connect(db_path)
+                conn.row_factory = _sqlite3.Row
+                cur = conn.cursor()
+                cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                tables = [row[0] for row in cur.fetchall()]
+                db_results[db_name] = {"tables": tables, "rows": {}}
+                for table in tables:
+                    try:
+                        cur.execute(f"SELECT * FROM [{table}] LIMIT 500")
+                        db_results[db_name]["rows"][table] = [dict(row) for row in cur.fetchall()]
+                    except Exception:
+                        pass
+                conn.close()
+            except Exception:
+                pass
+
+        summary = {
+            "archive_file":  local_archive,
+            "extracted_dir": extracted_dir,
+            "total_files":   len(extracted_files),
+            "db_files":      len(db_files),
+            "databases":     db_results,
+            "file_list":     extracted_files[:2000],
+        }
+
+        path = os.path.join(self.output_dir, "root_backup_summary.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(summary, f, ensure_ascii=False, indent=2)
 
@@ -1328,17 +1731,12 @@ class Extractor:
 
         # ── AppOps – přístupy k oprávněním (kamera, mikrofon, poloha…) ───────
         sensitive_ops = {
-            "CAMERA":             "Kamera",
-            "RECORD_AUDIO":       "Mikrofon",
-            "ACCESS_FINE_LOCATION": "Přesná poloha",
-            "ACCESS_COARSE_LOCATION": "Přibližná poloha",
-            "READ_CONTACTS":      "Kontakty (čtení)",
-            "READ_SMS":           "SMS (čtení)",
-            "READ_CALL_LOG":      "Historie hovorů",
-            "READ_EXTERNAL_STORAGE": "Úložiště (čtení)",
-            "BODY_SENSORS":       "Senzory těla",
-            "READ_PHONE_STATE":   "Stav telefonu",
-            "SEND_SMS":           "Odesílání SMS",
+            op: t(f"perm.{op}") for op in (
+                "CAMERA", "RECORD_AUDIO", "ACCESS_FINE_LOCATION",
+                "ACCESS_COARSE_LOCATION", "READ_CONTACTS", "READ_SMS",
+                "READ_CALL_LOG", "READ_EXTERNAL_STORAGE", "BODY_SENSORS",
+                "READ_PHONE_STATE", "SEND_SMS",
+            )
         }
 
         appops_raw = self.adb.shell("dumpsys appops 2>/dev/null", timeout=30)
@@ -1453,17 +1851,11 @@ class Extractor:
         results["termux_api_available"] = has_termux_api
 
         if not has_termux:
-            r.error = (
-                "Termux není nainstalován. "
-                "Nainstalujte Termux a Termux:API z F-Droid pro plnou extrakci."
-            )
+            r.error = t("x.no_termux")
             return
 
         if not has_termux_api:
-            r.error = (
-                "Termux:API není nainstalováno. "
-                "Nainstalujte balíček 'termux-api' v Termuxu: pkg install termux-api"
-            )
+            r.error = t("x.no_termux_api")
             return
 
         def _termux(cmd: str, timeout: int = 20) -> str:
