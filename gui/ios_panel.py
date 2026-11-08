@@ -16,7 +16,7 @@ from core.ios_manager import iOSManager, has_pymobiledevice
 from core.ios_extractor import iOSExtractor, IOS_MODULES
 
 ACCENT     = "#00d4ff"
-IOS_ACCENT = "#5AC8FA"   # iOS blue
+IOS_ACCENT = "#00d4ff"   # iOS blue
 BG_CARD    = "#16213e"
 BG_PANEL   = "#1a1a2e"
 BG_LOG     = "#0a0f1e"

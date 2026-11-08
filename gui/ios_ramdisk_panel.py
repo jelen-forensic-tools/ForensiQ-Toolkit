@@ -15,7 +15,7 @@ from core.i18n import t
 from .iconset import module_icon
 from core.ios_ramdisk import iOSRamdiskAcquirer, IOS_RAMDISK_MODULES, paramiko_available
 
-ACCENT     = "#5AC8FA"
+ACCENT     = "#00d4ff"
 BG_CARD    = "#16213e"
 BG_DARK    = "#0a0f1e"
 BG_LOG     = "#0a0f1e"

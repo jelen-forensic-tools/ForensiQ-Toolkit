@@ -351,13 +351,13 @@ class ForenziQApp(ctk.CTk):
             p = BackupImportPanel(self._content, accent=ACCENT)
             self._backup_panel = p
         elif view == "ios":
-            p = iOSPanel(self._content, accent="#5AC8FA")
+            p = iOSPanel(self._content, accent="#00d4ff")
             self._ios_panel = p
         elif view == "ios_backup":
-            p = iOSBackupPanel(self._content, accent="#5AC8FA")
+            p = iOSBackupPanel(self._content, accent="#00d4ff")
             self._ios_backup_panel = p
         elif view == "ios_ramdisk":
-            p = iOSRamdiskPanel(self._content, accent="#5AC8FA")
+            p = iOSRamdiskPanel(self._content, accent="#00d4ff")
             self._ios_ramdisk_panel = p
         else:
             return None

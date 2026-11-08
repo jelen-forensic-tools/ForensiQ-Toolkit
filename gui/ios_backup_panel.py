@@ -19,7 +19,7 @@ from core.ios_backup_parser import (
     find_itunes_backups,
 )
 
-IOS_ACCENT = "#5AC8FA"
+IOS_ACCENT = "#00d4ff"
 ACCENT     = "#00d4ff"
 BG_CARD    = "#16213e"
 BG_PANEL   = "#1a1a2e"
