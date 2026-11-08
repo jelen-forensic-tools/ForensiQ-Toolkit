@@ -2,6 +2,7 @@ import customtkinter as ctk
 import threading
 import datetime
 import os
+import sys
 from tkinter import filedialog
 from .dashboard import DeviceDashboard
 from .extraction import ExtractionPanel
@@ -57,7 +58,8 @@ class ForenziQApp(ctk.CTk):
             ctk.set_widget_scaling(self._scale)
             ctk.set_window_scaling(self._scale)
 
-        self.title("Paranoid-Android-User-toolkit")
+        self.title("ForenziQ Toolkit")
+        self._set_app_icon()
         # Default geometry adapted to resolution
         w = int(1280 * self._scale)
         h = int(800 * self._scale)
@@ -83,6 +85,19 @@ class ForenziQApp(ctk.CTk):
 
     # ── UI construction ──────────────────────────────────────────────────────
 
+    def _set_app_icon(self):
+        """Nastaví ikonu okna – funguje ze zdrojáků i z .exe balíčku."""
+        if getattr(sys, "frozen", False):
+            base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+        else:
+            base = os.path.dirname(os.path.dirname(__file__))
+        ico = os.path.join(base, "assets", "forenziq.ico")
+        try:
+            if os.path.exists(ico):
+                self.iconbitmap(ico)
+        except Exception:
+            pass
+
     def _build_ui(self):
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -106,12 +121,12 @@ class ForenziQApp(ctk.CTk):
         logo_frame.grid(row=0, column=0, padx=20, pady=(22, 4), sticky="w")
 
         ctk.CTkLabel(
-            logo_frame, text="Paranoid-Android-",
-            font=ctk.CTkFont(size=20, weight="bold"),
-            text_color="#ffffff"
+            logo_frame, text="ForenziQ",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color=ACCENT
         ).pack(anchor="w")
         ctk.CTkLabel(
-            logo_frame, text="User-toolkit",
+            logo_frame, text="Toolkit",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#ffffff"
         ).pack(anchor="w")

@@ -1,4 +1,4 @@
-# Paranoid-Android-User-toolkit (ForenziQ)
+# ForenziQ Toolkit
 
 Forenzní nástroj pro analýzu a extrakci dat z Android zařízení přes ADB rozhraní.
 

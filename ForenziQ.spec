@@ -28,6 +28,10 @@ for pkg in ("customtkinter", "tkintermapview", "pymobiledevice3"):
 if os.path.isdir("adb"):
     datas += [("adb", "adb")]
 
+# Ikona okna (za běhu ji načítá _set_app_icon).
+if os.path.exists(os.path.join("assets", "forenziq.ico")):
+    datas += [(os.path.join("assets", "forenziq.ico"), "assets")]
+
 # Pomocné balíčky, které bývají importovány dynamicky.
 hiddenimports += [
     "PIL._tkinter_finder",
@@ -68,5 +72,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,
+    icon="assets/forenziq.ico",
 )
