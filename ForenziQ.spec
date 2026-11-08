@@ -1,13 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec pro ForenziQ – vytvoří samostatnou aplikaci (onedir),
-která nevyžaduje nainstalovaný Python ani žádné balíčky.
+PyInstaller spec pro ForenziQ – vytvoří JEDEN samostatný .exe (onefile),
+který nevyžaduje nainstalovaný Python ani žádné balíčky ani další složky.
 
 Sestavení:
     python -m PyInstaller ForenziQ.spec --noconfirm
 
-Výstup:  dist/ForenziQ/ForenziQ.exe  (+ složka _internal)
-Distribuce: zazipovat celou složku dist/ForenziQ a předat uživateli.
+Výstup:  dist/ForenziQ.exe   (jediný soubor, vše uvnitř)
+Distribuce: předat uživateli samotný ForenziQ.exe.
 """
 import os
 from PyInstaller.utils.hooks import collect_all
@@ -52,13 +52,16 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.datas,
     [],
-    exclude_binaries=True,
     name="ForenziQ",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
     console=False,          # GUI aplikace – bez konzolového okna
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -66,14 +69,4 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=None,
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name="ForenziQ",
 )
