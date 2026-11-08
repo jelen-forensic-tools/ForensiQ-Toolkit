@@ -28,9 +28,9 @@ for pkg in ("customtkinter", "tkintermapview", "pymobiledevice3", "paramiko"):
 if os.path.isdir("adb"):
     datas += [("adb", "adb")]
 
-# Ikona okna (za běhu ji načítá _set_app_icon).
-if os.path.exists(os.path.join("assets", "forenziq.ico")):
-    datas += [(os.path.join("assets", "forenziq.ico"), "assets")]
+# Složka assets (ikona okna + značkové ikony formátů) – načítá se za běhu.
+if os.path.isdir("assets"):
+    datas += [("assets", "assets")]
 
 # Pomocné balíčky, které bývají importovány dynamicky.
 hiddenimports += [

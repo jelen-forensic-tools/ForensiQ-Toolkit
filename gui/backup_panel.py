@@ -4,10 +4,12 @@ gui/backup_panel.py – Panel for importing and extracting data from mobile back
 from __future__ import annotations
 
 import os
+import sys
 import datetime
 from pathlib import Path
 from tkinter import filedialog
 import customtkinter as ctk
+from PIL import Image
 from core.i18n import t
 from core.backup_importer import BackupImporter, BACKUP_FORMATS, IMPORT_MODULES, _fmt_label, _mod_label
 
@@ -55,9 +57,28 @@ class BackupImportPanel(ctk.CTkFrame):
         self._module_vars: dict[str, ctk.BooleanVar] = {
             k: ctk.BooleanVar(value=True) for k in IMPORT_MODULES
         }
+        self._fmt_icons = self._load_fmt_icons()
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
         self._build()
+
+    def _load_fmt_icons(self) -> dict:
+        """Načte značkové ikony formátů (funguje ze zdrojáků i z .exe balíčku)."""
+        if getattr(sys, "frozen", False):
+            base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+        else:
+            base = os.path.dirname(os.path.dirname(__file__))
+        folder = os.path.join(base, "assets", "formats")
+        icons: dict = {}
+        for key in BACKUP_FORMATS:
+            p = os.path.join(folder, f"{key}.png")
+            if os.path.isfile(p):
+                try:
+                    im = Image.open(p)
+                    icons[key] = ctk.CTkImage(light_image=im, dark_image=im, size=(34, 34))
+                except Exception:
+                    pass
+        return icons
 
     # ── UI construction ───────────────────────────────────────────────────────
 
@@ -235,9 +256,15 @@ class BackupImportPanel(ctk.CTkFrame):
         frame.grid(row=row, column=0, padx=5, pady=5, sticky="ew")
         frame.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(frame, text=icon, font=ctk.CTkFont(size=24), width=45).grid(
-            row=0, column=0, rowspan=2, padx=(15, 5), pady=15
-        )
+        img = self._fmt_icons.get(value)
+        if img is not None:
+            ctk.CTkLabel(frame, text="", image=img, width=45).grid(
+                row=0, column=0, rowspan=2, padx=(15, 5), pady=12
+            )
+        else:
+            ctk.CTkLabel(frame, text=icon, font=ctk.CTkFont(size=24), width=45).grid(
+                row=0, column=0, rowspan=2, padx=(15, 5), pady=15
+            )
         ctk.CTkLabel(
             frame, text=title,
             font=ctk.CTkFont(size=13, weight="bold"),
