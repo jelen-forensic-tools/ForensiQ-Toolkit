@@ -204,7 +204,8 @@ class ComparisonPanel(ctk.CTkFrame):
             self._scroll,
             text=t("cmp.placeholder"),
             text_color=TEXT_MUTED,
-            font=ctk.CTkFont(size=13)
+            font=ctk.CTkFont(size=13),
+            wraplength=500, justify="center",
         )
         self._placeholder.grid(row=0, column=0, pady=40)
 
@@ -246,7 +247,8 @@ class ComparisonPanel(ctk.CTkFrame):
         if not results:
             ctk.CTkLabel(self._scroll,
                          text=t("cmp.no_data"),
-                         text_color=TEXT_MUTED).grid(row=0, column=0, pady=40)
+                         text_color=TEXT_MUTED, wraplength=500,
+                         justify="center").grid(row=0, column=0, pady=40)
             return
 
         # Summary at top

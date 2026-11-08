@@ -379,7 +379,7 @@ class BypassPanel(ctk.CTkFrame):
             text=t("byp.compat_note"),
             font=ctk.CTkFont(size=10),
             text_color=TEXT_DIM,
-            anchor="w",
+            anchor="w", wraplength=600, justify="left",
         ).grid(row=len(COMPAT) + 1, column=0, columnspan=3,
                padx=16, pady=(4, 10), sticky="w")
 

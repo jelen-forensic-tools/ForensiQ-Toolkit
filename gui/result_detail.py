@@ -94,7 +94,8 @@ class ResultDetailDialog(ctk.CTkToplevel):
         if data is None or (isinstance(data, (list, dict)) and not data):
             ctk.CTkLabel(
                 self._body, text=t("res.no_data"),
-                text_color=TEXT_MUTED, font=ctk.CTkFont(size=13)
+                text_color=TEXT_MUTED, font=ctk.CTkFont(size=13),
+                wraplength=500, justify="center"
             ).grid(row=0, column=0, pady=60)
             self._search_entry.configure(state="disabled")
             return

@@ -229,7 +229,7 @@ class ExtractionPanel(ctk.CTkFrame):
             section, text=t("agent.section_desc"),
             font=ctk.CTkFont(size=11),
             text_color=TEXT_MUTED,
-            anchor="w",
+            anchor="w", wraplength=260, justify="left",
         ).grid(row=1, column=1, sticky="w", pady=(0, 8))
 
         agent_row_start = section_row + 1

@@ -193,6 +193,7 @@ class MapPanel(ctk.CTkFrame):
                 font=ctk.CTkFont(size=13),
                 text_color=TEXT_MUTED,
                 justify="center",
+                wraplength=340,
             ).grid(row=0, column=0, padx=40, pady=40)
             self._map = None
             return

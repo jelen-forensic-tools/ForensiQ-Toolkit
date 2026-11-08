@@ -302,7 +302,8 @@ class TimelinePanel(ctk.CTkFrame):
         self._placeholder = ctk.CTkLabel(
             self._main,
             text=t("tl.placeholder"),
-            text_color=TEXT_MUTED, font=ctk.CTkFont(size=13))
+            text_color=TEXT_MUTED, font=ctk.CTkFont(size=13),
+            wraplength=480, justify="center")
         self._placeholder.grid(row=0, column=0, pady=60)
 
     def _build_filter_checkboxes(self):
