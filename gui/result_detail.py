@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 import customtkinter as ctk
-import tkinter as tk
 from tkinter import ttk
 import os
 import json
-from core.i18n import t
+from core.i18n import t, field_label
 
 ACCENT     = "#00d4ff"
 BG_DARK    = "#0f0f1a"
@@ -12,45 +11,8 @@ BG_CARD    = "#16213e"
 BG_PANEL   = "#1a1a2e"
 TEXT_MUTED = "#888888"
 
-# Překlady klíčů pro zobrazení
-KEY_LABELS = {
-    "display_name": "Jméno",
-    "number":       "Číslo",
-    "type":         "Typ",
-    "address":      "Adresa / Číslo",
-    "body":         "Text zprávy",
-    "date":         "Datum",
-    "direction":    "Směr",
-    "duration":     "Délka",
-    "package":      "Balíček",
-    "version":      "Verze",
-    "name":         "Název",
-    "ssid":         "SSID",
-    "security":     "Zabezpečení",
-    "url":          "URL",
-    "title":        "Titulek",
-    "visits":       "Návštěvy",
-    "last_visit":   "Poslední návštěva",
-    "filename":     "Soubor",
-    "path":         "Cesta",
-    "size":         "Velikost",
-    "md5":          "MD5",
-    "sha256":       "SHA-256",
-    "latitude":     "Šířka (GPS)",
-    "longitude":    "Délka (GPS)",
-    "gps_maps_url": "Mapa",
-    "camera_make":  "Výrobce kamery",
-    "camera_model": "Model kamery",
-    "datetime":     "Datum pořízení",
-    "width":        "Šířka (px)",
-    "height":       "Výška (px)",
-    "mtime":        "Změněno",
-    "ctime":        "Vytvořeno",
-}
-
-
 def _label(key: str) -> str:
-    return KEY_LABELS.get(key, key.replace("_", " ").capitalize())
+    return field_label(key)
 
 
 class ResultDetailDialog(ctk.CTkToplevel):
@@ -68,13 +30,13 @@ class ResultDetailDialog(ctk.CTkToplevel):
 
         self._build()
 
-    # ── stavba UI ────────────────────────────────────────────────────────────
+    # ── UI construction ──────────────────────────────────────────────────────
 
     def _build(self):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
-        # Hlavička
+        # Header
         hdr = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=10)
         hdr.grid(row=0, column=0, sticky="ew", padx=15, pady=(15, 8))
         hdr.grid_columnconfigure(1, weight=1)
@@ -98,7 +60,7 @@ class ResultDetailDialog(ctk.CTkToplevel):
         btn_frame = ctk.CTkFrame(hdr, fg_color="transparent")
         btn_frame.grid(row=0, column=2, padx=15, pady=8)
 
-        # Vyhledávací pole (jen pro tabulkový výsledek)
+        # Search field (table results only)
         self._search_var = ctk.StringVar()
         self._search_entry = ctk.CTkEntry(
             btn_frame, textvariable=self._search_var,
@@ -124,7 +86,7 @@ class ResultDetailDialog(ctk.CTkToplevel):
 
         self._render_data()
 
-    # ── vykreslení dat ───────────────────────────────────────────────────────
+    # ── Data rendering ───────────────────────────────────────────────────────
 
     def _render_data(self):
         data = self.result.data
@@ -150,7 +112,7 @@ class ResultDetailDialog(ctk.CTkToplevel):
                 self._all_rows = [{t("res.value_col"): str(v)} for v in data]
                 self._render_table(self._all_rows)
 
-    # ---- klíč-hodnota (device_info) ----------------------------------------
+    # ---- key-value (device_info) --------------------------------------------
 
     def _render_kv(self, data: dict):
         scroll = ctk.CTkScrollableFrame(self._body, fg_color="transparent")
@@ -174,36 +136,41 @@ class ResultDetailDialog(ctk.CTkToplevel):
                 font=ctk.CTkFont(size=12), anchor="w", wraplength=550
             ).grid(row=0, column=1, padx=(0, 15), pady=8, sticky="ew")
 
-    # ---- tabulka (ttk.Treeview) ---------------------------------------------
+    # ---- table (ttk.Treeview) -----------------------------------------------
 
     def _render_table(self, data: list[dict]):
         self._columns = list(dict.fromkeys(k for row in data for k in row.keys()))
         col_labels = [_label(c) for c in self._columns]
 
-        # Tmavý styl pro Treeview
+        # Dark style for Treeview – match the CustomTkinter look (font + surfaces)
+        fam = ctk.CTkFont().cget("family")
         style = ttk.Style(self)
         style.theme_use("clam")
         style.configure(
             "Dark.Treeview",
-            background="#16213e",
+            background=BG_CARD,
             foreground="#e0e0e0",
-            fieldbackground="#16213e",
-            rowheight=26,
-            font=("Segoe UI", 11),
+            fieldbackground=BG_CARD,
+            rowheight=28,
+            borderwidth=0,
+            font=(fam, 12),
         )
         style.configure(
             "Dark.Treeview.Heading",
             background="#0d1b3e",
             foreground=ACCENT,
-            font=("Segoe UI", 11, "bold"),
+            font=(fam, 12, "bold"),
             relief="flat",
+            borderwidth=0,
         )
         style.map("Dark.Treeview",
                   background=[("selected", "#1e4080")],
                   foreground=[("selected", "#ffffff")])
+        style.map("Dark.Treeview.Heading",
+                  background=[("active", "#13264f")])
 
-        # Obal s scrollbary
-        wrapper = tk.Frame(self._body, bg="#16213e", bd=0, highlightthickness=0)
+        # Wrapper with CTk scrollbars (consistent with the rest of the app)
+        wrapper = ctk.CTkFrame(self._body, fg_color=BG_CARD, corner_radius=8)
         wrapper.grid(row=0, column=0, sticky="nsew")
         wrapper.grid_columnconfigure(0, weight=1)
         wrapper.grid_rowconfigure(0, weight=1)
@@ -212,25 +179,25 @@ class ResultDetailDialog(ctk.CTkToplevel):
             wrapper, columns=self._columns, show="headings",
             style="Dark.Treeview", selectmode="browse"
         )
-        vsb = ttk.Scrollbar(wrapper, orient="vertical", command=self._tree.yview)
-        hsb = ttk.Scrollbar(wrapper, orient="horizontal", command=self._tree.xview)
+        vsb = ctk.CTkScrollbar(wrapper, orientation="vertical", command=self._tree.yview)
+        hsb = ctk.CTkScrollbar(wrapper, orientation="horizontal", command=self._tree.xview)
         self._tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
 
-        self._tree.grid(row=0, column=0, sticky="nsew")
-        vsb.grid(row=0, column=1, sticky="ns")
-        hsb.grid(row=1, column=0, sticky="ew")
+        self._tree.grid(row=0, column=0, sticky="nsew", padx=(8, 0), pady=(8, 0))
+        vsb.grid(row=0, column=1, sticky="ns", padx=(2, 6), pady=8)
+        hsb.grid(row=1, column=0, sticky="ew", padx=(8, 0), pady=(2, 6))
 
-        # Záhlaví sloupců
+        # Column headers
         for col, lbl in zip(self._columns, col_labels):
             self._tree.heading(col, text=lbl,
                                command=lambda c=col: self._sort(c))
             self._tree.column(col, width=150, minwidth=60, stretch=True)
 
-        # Střídavé barvy řádků
+        # Alternating row colours
         self._tree.tag_configure("odd",  background="#16213e")
         self._tree.tag_configure("even", background="#1c2850")
 
-        # Detail po dvojkliku
+        # Detail on double-click
         self._tree.bind("<Double-1>", self._on_row_double_click)
 
         self._populate(data)
@@ -244,7 +211,7 @@ class ResultDetailDialog(ctk.CTkToplevel):
             tag = "even" if i % 2 == 0 else "odd"
             self._tree.insert("", "end", values=vals, tags=(tag,))
 
-    # ── filtrování ───────────────────────────────────────────────────────────
+    # ── Filtering ────────────────────────────────────────────────────────────
 
     def _filter(self):
         q = self._search_var.get().lower().strip()
@@ -255,7 +222,7 @@ class ResultDetailDialog(ctk.CTkToplevel):
                         if any(q in str(v).lower() for v in r.values())]
             self._populate(filtered)
 
-    # ── řazení sloupce ───────────────────────────────────────────────────────
+    # ── Column sorting ───────────────────────────────────────────────────────
 
     def _sort(self, col: str):
         col_idx = self._columns.index(col)
@@ -267,7 +234,7 @@ class ResultDetailDialog(ctk.CTkToplevel):
             tag = "even" if i % 2 == 0 else "odd"
             self._tree.item(child, tags=(tag,))
 
-    # ── detail záznamu (dvojklik) ─────────────────────────────────────────────
+    # ── Row detail (double-click) ─────────────────────────────────────────────
 
     def _on_row_double_click(self, event):
         sel = self._tree.selection()
@@ -279,7 +246,7 @@ class ResultDetailDialog(ctk.CTkToplevel):
 
 
 class _RowDetailDialog(ctk.CTkToplevel):
-    """Malé okno s detailem jednoho záznamu."""
+    """Small window showing the detail of a single record."""
 
     def __init__(self, master, row: dict, module_label: str):
         super().__init__(master)
@@ -309,7 +276,7 @@ class _RowDetailDialog(ctk.CTkToplevel):
             ).grid(row=0, column=0, padx=(12, 8), pady=7, sticky="w")
 
             val_str = str(v)
-            # GPS odkaz
+            # GPS link
             if k == "gps_maps_url" and val_str.startswith("http"):
                 link = ctk.CTkLabel(
                     f, text=t("res.open_maps"), text_color=ACCENT,
