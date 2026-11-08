@@ -67,16 +67,16 @@ class DeviceDashboard(ctk.CTkFrame):
         super().__init__(master, fg_color="transparent", **kwargs)
         self.accent = accent
         self._current_info = None
-        # Levý panel fixní šířka, pravý roste
-        self.grid_columnconfigure(0, weight=0, minsize=220)
-        self.grid_columnconfigure(1, weight=1)
+        # Levý panel ~1/3 šířky, pravý ~2/3
+        self.grid_columnconfigure(0, weight=1, minsize=260)
+        self.grid_columnconfigure(1, weight=2)
         self.grid_rowconfigure(0, weight=1)
         self._build()
 
     # ------------------------------------------------------------------
     def _build(self):
         # ── Levý panel ──────────────────────────────────────────────
-        self._left = ctk.CTkFrame(self, fg_color=BG_LEFT, corner_radius=12, width=220)
+        self._left = ctk.CTkFrame(self, fg_color=BG_LEFT, corner_radius=12)
         self._left.grid(row=0, column=0, sticky="nsew", padx=(5, 3), pady=5)
         self._left.grid_propagate(False)
         self._left.grid_columnconfigure(0, weight=1)
