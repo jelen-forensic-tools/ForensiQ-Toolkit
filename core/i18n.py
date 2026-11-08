@@ -27,7 +27,7 @@ TRANSLATIONS = {
         "adb.unavailable": " ADB nedostupné",
         "adb.ok":          " ADB dostupné",
         # Dashboard
-        "dash.placeholder":    "Připojte Android zařízení přes USB\na povolte ladění (USB Debugging).",
+        "dash.placeholder":    "Připojte zařízení přes USB\n\nAndroid: povolte ladění (USB Debugging)\niOS: odemkněte a potvrďte „Důvěřovat tomuto počítači“",
         "dash.no_device":      "Žádné zařízení",
         "dash.loading":        "Načítám…",
         "dash.connected":      "Připojeno",
@@ -799,7 +799,7 @@ TRANSLATIONS = {
         "adb.unavailable": " ADB unavailable",
         "adb.ok":          " ADB available",
         # Dashboard
-        "dash.placeholder":    "Connect an Android device via USB\nand enable USB Debugging.",
+        "dash.placeholder":    "Connect a device via USB\n\nAndroid: enable USB Debugging\niOS: unlock and tap “Trust This Computer”",
         "dash.no_device":      "No Device",
         "dash.loading":        "Loading…",
         "dash.connected":      "Connected",
