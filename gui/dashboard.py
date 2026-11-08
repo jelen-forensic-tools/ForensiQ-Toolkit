@@ -143,6 +143,7 @@ class DeviceDashboard(ctk.CTkFrame):
             text_color=TEXT_MUTED,
             font=ctk.CTkFont(size=13),
             justify="center",
+            wraplength=460,   # zabrání, aby delší text (CS vs EN) měnil šířku sloupce
         )
         self._placeholder_lbl.grid(row=0, column=0, padx=30, pady=40)
 
