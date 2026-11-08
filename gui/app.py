@@ -64,6 +64,9 @@ class ForenziQApp(ctk.CTk):
         self.geometry(f"{w}x{h}")
         self.minsize(int(1024 * self._scale), int(680 * self._scale))
         self.configure(fg_color=BG_DARK)
+        # Spustit maximalizované přes celou obrazovku (horní lišta a ovládání
+        # okna zůstávají; výše nastavená velikost slouží jako obnovená velikost).
+        self.after(0, lambda: self.state("zoomed"))
 
         self.adb = ADBManager()
         self.extractor: Extractor | None = None
