@@ -7,6 +7,10 @@ from typing import Optional, Callable
 
 from .i18n import t
 
+# Na Windows zabrání, aby každé volání adb/fastboot probliklo konzolovým oknem
+# (v „windowed" .exe se jinak při každém příkazu/pollingu otevře černé okno).
+_CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+
 
 class ADBManager:
     def __init__(self):
@@ -43,7 +47,8 @@ class ADBManager:
                 text=True,
                 timeout=timeout if timeout and timeout > 0 else None,
                 encoding="utf-8",
-                errors="replace"
+                errors="replace",
+                creationflags=_CREATE_NO_WINDOW,
             )
             return result.returncode, result.stdout.strip(), result.stderr.strip()
         except subprocess.TimeoutExpired:
