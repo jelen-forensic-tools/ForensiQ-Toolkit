@@ -82,11 +82,11 @@ class iOSBackupPanel(ctk.CTkFrame):
     def _build_topbar(self):
         top = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=12)
         top.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        top.grid_columnconfigure(1, weight=1)
+        top.grid_columnconfigure(0, weight=1)
 
-        # Row 0 – found backups
+        # ── Řádek 0 – nalezené zálohy + ovládací tlačítka ──
         row0 = ctk.CTkFrame(top, fg_color="transparent")
-        row0.grid(row=0, column=0, columnspan=3, padx=16, pady=(14, 4), sticky="ew")
+        row0.grid(row=0, column=0, padx=16, pady=(12, 4), sticky="ew")
         row0.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(
@@ -99,7 +99,7 @@ class iOSBackupPanel(ctk.CTkFrame):
         self._found_combo = ctk.CTkComboBox(
             row0, variable=self._found_var,
             values=[t("ios_bkp.searching")],
-            width=380, state="readonly",
+            state="readonly",
             command=self._on_found_selected,
         )
         self._found_combo.grid(row=0, column=1, sticky="ew", padx=(0, 8))
@@ -108,95 +108,71 @@ class iOSBackupPanel(ctk.CTkFrame):
             row0, text="↺", width=36, height=30,
             fg_color="#2a2a4a", hover_color="#3a3a5a",
             command=self._scan_backups,
-        ).grid(row=0, column=2)
-
-        # Row 1 – manual path
-        row1 = ctk.CTkFrame(top, fg_color="transparent")
-        row1.grid(row=1, column=0, columnspan=3, padx=16, pady=(0, 4), sticky="ew")
-        row1.grid_columnconfigure(1, weight=1)
-
-        ctk.CTkLabel(
-            row1, text=t("ios_bkp.manual_label"),
-            font=ctk.CTkFont(size=11, weight="bold"),
-            text_color=TEXT_MUTED,
-        ).grid(row=0, column=0, padx=(0, 8))
-
-        self._path_label = ctk.CTkLabel(
-            row1, text=t("ios_bkp.no_path"),
-            font=ctk.CTkFont(size=11),
-            text_color=TEXT_MUTED, anchor="w",
-        )
-        self._path_label.grid(row=0, column=1, sticky="ew")
-
-        # Row 2 – output dir
-        row2 = ctk.CTkFrame(top, fg_color="transparent")
-        row2.grid(row=2, column=0, columnspan=3, padx=16, pady=(0, 4), sticky="ew")
-        row2.grid_columnconfigure(1, weight=1)
-
-        ctk.CTkLabel(
-            row2, text=t("bkp.output_label"),
-            font=ctk.CTkFont(size=11, weight="bold"),
-            text_color=TEXT_MUTED,
-        ).grid(row=0, column=0, padx=(0, 8))
-
-        self._output_label = ctk.CTkLabel(
-            row2, text=t("bkp.no_output"),
-            font=ctk.CTkFont(size=11),
-            text_color=TEXT_MUTED, anchor="w",
-        )
-        self._output_label.grid(row=0, column=1, sticky="ew")
+        ).grid(row=0, column=2, padx=(0, 6))
 
         ctk.CTkButton(
-            row2, text="📂", width=36, height=28,
+            row0, text=t("ios_bkp.pick_folder"),
+            font=ctk.CTkFont(size=12),
+            fg_color="#2a2a4a", hover_color="#3a3a5a",
+            height=30, width=150,
+            command=self._pick_folder,
+        ).grid(row=0, column=3, padx=(0, 6))
+
+        ctk.CTkButton(
+            row0, text="📂", width=36, height=30,
             fg_color="#2a2a4a", hover_color="#3a3a5a",
             command=self._pick_output,
-        ).grid(row=0, column=2, padx=(6, 0))
+        ).grid(row=0, column=4)
 
-        # Row 3 – action buttons
-        btn_row = ctk.CTkFrame(top, fg_color="transparent")
-        btn_row.grid(row=3, column=0, columnspan=3, padx=12, pady=(4, 12), sticky="ew")
+        # ── Řádek 1 – cesta / výstup / info zařízení + akční tlačítka ──
+        row1 = ctk.CTkFrame(top, fg_color="transparent")
+        row1.grid(row=1, column=0, padx=16, pady=(0, 12), sticky="ew")
+        row1.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkButton(
-            btn_row, text=t("ios_bkp.pick_folder"),
-            font=ctk.CTkFont(size=12),
-            fg_color=self.accent, text_color="#000",
-            height=32, width=160,
-            command=self._pick_folder,
-        ).pack(side="left", padx=(0, 8))
-
+        info = ctk.CTkFrame(row1, fg_color="transparent")
+        info.grid(row=0, column=0, sticky="w")
+        self._path_label = ctk.CTkLabel(
+            info, text=t("ios_bkp.no_path"),
+            font=ctk.CTkFont(size=11),
+            text_color=TEXT_MUTED, anchor="w",
+        )
+        self._path_label.pack(side="left")
+        self._output_label = ctk.CTkLabel(
+            info, text="",
+            font=ctk.CTkFont(size=11),
+            text_color=TEXT_MUTED, anchor="w",
+        )
+        self._output_label.pack(side="left", padx=(12, 0))
         self._device_info_lbl = ctk.CTkLabel(
-            btn_row, text="",
+            info, text="",
             font=ctk.CTkFont(size=11),
             text_color=ACCENT,
         )
-        self._device_info_lbl.pack(side="left")
+        self._device_info_lbl.pack(side="left", padx=(12, 0))
 
-        self._btn_stop = ctk.CTkButton(
-            btn_row, text=t("ext.stop"),
-            font=ctk.CTkFont(size=13),
-            fg_color="#f44336", hover_color="#c62828",
-            text_color="#fff",
-            width=100, height=36,
-            state="disabled",
-            command=self._stop,
+        actions = ctk.CTkFrame(row1, fg_color="transparent")
+        actions.grid(row=0, column=1, sticky="e")
+        self._status_bar = ctk.CTkLabel(
+            actions, text="", font=ctk.CTkFont(size=11),
+            text_color=TEXT_MUTED, anchor="e", width=140,
         )
-        self._btn_stop.pack(side="right", padx=(4, 0))
-
+        self._status_bar.pack(side="left", padx=(0, 12))
         self._btn_run = ctk.CTkButton(
-            btn_row, text=t("ios_bkp.run"),
+            actions, text=t("ios_bkp.run"),
             font=ctk.CTkFont(size=13, weight="bold"),
             fg_color=GREEN, hover_color="#009624",
-            text_color="#000",
-            width=160, height=36,
+            text_color="#000", width=150, height=36,
             command=self._run,
         )
-        self._btn_run.pack(side="right")
-
-        self._status_bar = ctk.CTkLabel(
-            btn_row, text="", font=ctk.CTkFont(size=11),
-            text_color=TEXT_MUTED, anchor="w", width=160,
+        self._btn_run.pack(side="left", padx=(0, 4))
+        self._btn_stop = ctk.CTkButton(
+            actions, text=t("ext.stop"),
+            font=ctk.CTkFont(size=13),
+            fg_color="#f44336", hover_color="#c62828",
+            text_color="#fff", width=100, height=36,
+            state="disabled", command=self._stop,
         )
-        self._status_bar.pack(side="right", padx=(0, 12))
+        self._btn_stop.pack(side="left")
 
     def _build_log(self, parent):
         log_card = ctk.CTkFrame(parent, fg_color=BG_CARD, corner_radius=12)
