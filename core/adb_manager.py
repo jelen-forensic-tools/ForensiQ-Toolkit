@@ -1,8 +1,11 @@
 import subprocess
 import re
 import os
+import sys
 import threading
 from typing import Optional, Callable
+
+from .i18n import t
 
 
 class ADBManager:
@@ -11,30 +14,42 @@ class ADBManager:
         self.connected_device: Optional[str] = None
 
     def _find_adb(self) -> str:
-        """Najde ADB v systému nebo v lokální složce."""
-        # Zkusit lokální adb v projektu
-        local = os.path.join(os.path.dirname(os.path.dirname(__file__)), "adb", "adb.exe")
-        if os.path.exists(local):
-            return local
+        """Najde ADB – v balíčku (.exe), vedle .exe, v projektu, nebo v PATH."""
+        candidates = []
+        if getattr(sys, "frozen", False):
+            # PyInstaller: vedle spustitelného .exe a v rozbaleném balíčku
+            exe_dir = os.path.dirname(sys.executable)
+            candidates.append(os.path.join(exe_dir, "adb", "adb.exe"))
+            meipass = getattr(sys, "_MEIPASS", None)
+            if meipass:
+                candidates.append(os.path.join(meipass, "adb", "adb.exe"))
+        # Lokální adb v projektu (běh ze zdrojáků)
+        candidates.append(
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), "adb", "adb.exe")
+        )
+        for c in candidates:
+            if os.path.exists(c):
+                return c
         return "adb"  # předpokládáme adb v PATH
 
-    def _run(self, args: list, timeout: int = 30) -> tuple[int, str, str]:
-        """Spustí ADB příkaz a vrátí (returncode, stdout, stderr)."""
+    def _run(self, args: list, timeout: int | None = 30) -> tuple[int, str, str]:
+        """Spustí ADB příkaz a vrátí (returncode, stdout, stderr).
+        timeout=None znamená bez časového limitu (vhodné pro velké přenosy souborů)."""
         try:
             cmd = [self.adb_path] + args
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=timeout,
+                timeout=timeout if timeout and timeout > 0 else None,
                 encoding="utf-8",
                 errors="replace"
             )
             return result.returncode, result.stdout.strip(), result.stderr.strip()
         except subprocess.TimeoutExpired:
-            return -1, "", "Timeout"
+            return -1, "", t("adbm.timeout").format(s=timeout)
         except FileNotFoundError:
-            return -1, "", "ADB nenalezeno. Nainstalujte ADB a přidejte do PATH."
+            return -1, "", t("adbm.not_found")
         except Exception as e:
             return -1, "", str(e)
 
@@ -42,7 +57,7 @@ class ADBManager:
         """Zkontroluje, zda je ADB dostupné."""
         rc, out, err = self._run(["version"])
         if rc == 0:
-            version = out.split("\n")[0] if out else "neznámá verze"
+            version = out.split("\n")[0] if out else t("val.unknown_version")
             return True, version
         return False, err
 
@@ -72,6 +87,13 @@ class ADBManager:
         self.connected_device = serial
         return True
 
+    def is_connected(self) -> bool:
+        """Return True if the currently tracked device is still online."""
+        if not self.connected_device:
+            return False
+        devices = self.get_devices()
+        return any(d["serial"] == self.connected_device for d in devices)
+
     def shell(self, cmd: str, timeout: int = 30) -> str:
         """Spustí shell příkaz na zařízení."""
         if not self.connected_device:
@@ -85,6 +107,18 @@ class ADBManager:
             return False
         rc, out, err = self._run(["-s", self.connected_device, "pull", remote, local], timeout=timeout)
         return rc == 0
+
+    def pull_err(self, remote: str, local: str, timeout: int | None = 120) -> tuple[bool, str]:
+        """Stáhne soubor ze zařízení; vrátí (ok, error_msg)."""
+        if not self.connected_device:
+            return False, t("adbm.not_connected")
+        rc, out, err = self._run(["-s", self.connected_device, "pull", remote, local], timeout=timeout)
+        if rc == 0:
+            return True, ""
+        msg = (err or out or "").strip()
+        # Zkrátit na první řádek, pokud je více řádků
+        msg = msg.splitlines()[0] if msg else f"rc={rc}"
+        return False, msg
 
     def get_device_info(self) -> dict:
         """Získá základní informace o zařízení."""
@@ -240,10 +274,10 @@ class ADBManager:
     def enable_tcpip(self, port: int = 5555) -> tuple[bool, str]:
         """Přepne zařízení do TCP/IP režimu (vyžaduje USB připojení)."""
         if not self.connected_device:
-            return False, "Není připojeno žádné zařízení přes USB."
+            return False, t("adbm.no_usb")
         rc, out, err = self._run(["-s", self.connected_device, "tcpip", str(port)])
         if rc == 0 or "restarting" in out.lower():
-            return True, f"TCP/IP režim aktivován na portu {port}."
+            return True, t("adbm.tcpip_on").format(port=port)
         return False, err or out
 
     def connect_wifi(self, ip: str, port: int = 5555) -> tuple[bool, str]:
@@ -252,11 +286,11 @@ class ADBManager:
         combined = (out + err).lower()
         if "connected" in combined:
             self.connected_device = f"{ip}:{port}"
-            return True, f"Připojeno k {ip}:{port}"
+            return True, t("adbm.connected").format(addr=f"{ip}:{port}")
         if "already connected" in combined:
             self.connected_device = f"{ip}:{port}"
-            return True, f"Již připojeno k {ip}:{port}"
-        return False, out or err or "Připojení selhalo."
+            return True, t("adbm.already").format(addr=f"{ip}:{port}")
+        return False, out or err or t("adbm.connect_failed")
 
     def disconnect_wifi(self, ip: str, port: int = 5555) -> tuple[bool, str]:
         """Odpojí Wi-Fi zařízení."""
