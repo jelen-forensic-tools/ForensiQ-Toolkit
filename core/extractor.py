@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import threading
 import datetime
@@ -287,15 +288,31 @@ class Extractor:
 
     def _extract_apps(self, r: ExtractionResult):
         packages = self.adb.get_installed_apps(include_system=False)
+
+        # Jediný `dumpsys package` dump pro všechny balíčky místo jednoho volání
+        # na každý balíček (každé je round-trip přes USB). Výstup obsahuje bloky
+        # „Package [<pkg>] (...):“ s řádkem „versionName=...“.
+        version_map: dict = {}
+        dump = self.adb.shell("dumpsys package packages")
+        cur_pkg = None
+        for line in dump.split("\n"):
+            pm = re.search(r"Package \[([^\]]+)\]", line)
+            if pm:
+                cur_pkg = pm.group(1)
+                continue
+            if cur_pkg and "versionName=" in line:
+                vm = re.search(r"versionName=([^\s]+)", line)
+                if vm and cur_pkg not in version_map:
+                    version_map[cur_pkg] = vm.group(1)
+
         apps = []
         for pkg in packages:
-            info_raw = self.adb.shell(f"dumpsys package {pkg} | grep -E 'versionName|firstInstallTime|lastUpdateTime'")
-            app = {"package": pkg, "version": "N/A", "installed": "N/A", "updated": "N/A"}
-            import re
-            m = re.search(r"versionName=([^\s]+)", info_raw)
-            if m:
-                app["version"] = m.group(1)
-            apps.append(app)
+            apps.append({
+                "package": pkg,
+                "version": version_map.get(pkg, "N/A"),
+                "installed": "N/A",
+                "updated": "N/A",
+            })
 
         path = os.path.join(self.output_dir, "apps.json")
         with open(path, "w", encoding="utf-8") as f:

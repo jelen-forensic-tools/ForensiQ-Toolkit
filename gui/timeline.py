@@ -2,7 +2,8 @@ import customtkinter as ctk
 import tkinter as tk
 import os, json, datetime, threading
 from collections import defaultdict
-from core.i18n import t
+from core.i18n import t, field_label
+from . import theme as th
 
 ACCENT     = "#00d4ff"
 BG_CARD    = "#16213e"
@@ -91,6 +92,15 @@ def load_events(output_dir: str) -> list[dict]:
     return events
 
 
+def _display_value(key: str, value) -> str:
+    """Hodnota pole pro zobrazení v detailu (překlad typických hodnot)."""
+    if isinstance(value, bool):
+        return t("val.yes") if value else t("val.no")
+    if key == "type" and value == "image":
+        return t("tl.val_image")
+    return str(value)
+
+
 # ── Detail dialog ─────────────────────────────────────────────────────────────
 
 class EventDetailDialog(ctk.CTkToplevel):
@@ -98,7 +108,7 @@ class EventDetailDialog(ctk.CTkToplevel):
         super().__init__(master)
         src = SOURCE_CFG.get(event["source"], {"color": ACCENT, "label_key": "src.sms"})
         src_label = t(src["label_key"])
-        self.title(f"Detail — {src_label}")
+        self.title(f"{t('tl.det_title')} — {src_label}")
         self.geometry("580x500")
         self.resizable(True, True)
         self.configure(fg_color=BG_DARK)
@@ -127,7 +137,8 @@ class EventDetailDialog(ctk.CTkToplevel):
             base.append((t("tl.det_detail"), event["detail"]))
 
         raw = event.get("raw", {})
-        all_fields = base + [(k, str(v)) for k, v in raw.items()
+        all_fields = base + [(field_label(k), _display_value(k, v))
+                             for k, v in raw.items()
                              if str(v).strip() and k != "path"]
 
         if "gps_latitude" in raw:
@@ -189,6 +200,7 @@ class TimelinePanel(ctk.CTkFrame):
         self._pan_x0: int | None = None
         self._pan_vs: datetime.datetime | None = None
         self._pan_ve: datetime.datetime | None = None
+        self._pan_moved = False
 
         self._sel_rect = None
         self._source_vars: dict[str, ctk.BooleanVar] = {}
@@ -209,62 +221,35 @@ class TimelinePanel(ctk.CTkFrame):
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build(self):
-        top = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=12)
-        top.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        top.grid_columnconfigure(1, weight=1)
+        tb = th.Toolbar(self)
+        tb.grid(row=0, column=0, sticky="ew", pady=(0, th.GAP))
 
-        left = ctk.CTkFrame(top, fg_color="transparent")
-        left.grid(row=0, column=0, padx=12, pady=14)
+        # Zdroj: složka extrakce
+        self._load_btn = th.secondary_button(tb.source, t("tl.load"), self._load_from_dialog,
+                                             width=150)
+        self._load_btn.pack(side="left", padx=(0, 10))
+        self._dir_label = ctk.CTkLabel(tb.source, text=t("tl.no_folder"),
+                                       text_color=TEXT_MUTED, font=th.f_small(), anchor="w")
+        self._dir_label.pack(side="left", padx=(0, 16))
 
-        self._load_btn = ctk.CTkButton(
-            left, text=t("tl.load"), width=120, height=32,
-            fg_color=self.accent, text_color="#000",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            command=self._load_from_dialog
-        )
-        self._load_btn.pack(side="left", padx=(0, 8))
-
-        self._dir_label = ctk.CTkLabel(left, text=t("tl.no_folder"),
-                                        text_color=TEXT_MUTED,
-                                        font=ctk.CTkFont(size=11))
-        self._dir_label.pack(side="left")
-
-        self._filter_frame = ctk.CTkFrame(top, fg_color="transparent")
-        self._filter_frame.grid(row=0, column=1, padx=10, pady=14, sticky="e")
+        # Filtry zdrojů (vlevo u zdroje)
+        self._filter_frame = ctk.CTkFrame(tb.source, fg_color="transparent")
+        self._filter_frame.pack(side="left")
         self._build_filter_checkboxes()
 
-        btn_f = ctk.CTkFrame(top, fg_color="transparent")
-        btn_f.grid(row=0, column=2, padx=10)
+        # Statistika
+        self._stats_lbl = ctk.CTkLabel(tb.info, text="", text_color=TEXT_MUTED,
+                                       font=th.f_small())
+        self._stats_lbl.pack(side="right")
 
-        self._reset_btn = ctk.CTkButton(
-            btn_f, text=t("tl.full_range"), width=90, height=28,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            font=ctk.CTkFont(size=11),
-            command=self._reset_view
-        )
-        self._reset_btn.pack(side="left", padx=3)
-
-        self._zoom_in_btn = ctk.CTkButton(
-            btn_f, text=t("tl.zoom_in"), width=90, height=28,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            font=ctk.CTkFont(size=11),
-            command=self._zoom_in
-        )
-        self._zoom_in_btn.pack(side="left", padx=3)
-
-        self._zoom_out_btn = ctk.CTkButton(
-            btn_f, text=t("tl.zoom_out"), width=90, height=28,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            font=ctk.CTkFont(size=11),
-            command=self._zoom_out
-        )
-        self._zoom_out_btn.pack(side="left", padx=3)
-
-        self._stats_lbl = ctk.CTkLabel(top, text="",
-                                        text_color=TEXT_MUTED,
-                                        font=ctk.CTkFont(size=10))
-        self._stats_lbl.grid(row=1, column=0, columnspan=3,
-                              padx=12, pady=(0, 8), sticky="w")
+        # Ovládání pohledu (vpravo u akcí)
+        self._reset_btn = th.secondary_button(tb.actions, t("tl.full_range"),
+                                              self._reset_view, width=110)
+        self._zoom_in_btn = th.secondary_button(tb.actions, t("tl.zoom_in"),
+                                                self._zoom_in, width=90)
+        self._zoom_out_btn = th.secondary_button(tb.actions, t("tl.zoom_out"),
+                                                 self._zoom_out, width=90)
+        th.pack_row(self._reset_btn, self._zoom_in_btn, self._zoom_out_btn)
 
         # ── Main area ─────────────────────────────────────────────────────────
         self._main = ctk.CTkFrame(self, fg_color="transparent")
@@ -296,8 +281,8 @@ class TimelinePanel(ctk.CTkFrame):
         self._canvas.bind("<ButtonPress-3>",  lambda e: self._reset_view())
         self._canvas.bind("<Motion>",         self._on_hover)
         self._canvas.bind("<Leave>",          self._hide_tip)
-        # Single click binding for the whole canvas – finds the dot under the cursor
-        self._canvas.bind("<Button-1>",       self._on_canvas_click)
+        # Pozn.: <Button-1> je totéž co <ButtonPress-1> – klik na tečku se proto
+        # vyhodnocuje až při uvolnění tlačítka, pokud se myší netáhlo (_on_release).
 
         self._placeholder = ctk.CTkLabel(
             self._main,
@@ -318,7 +303,7 @@ class TimelinePanel(ctk.CTkFrame):
                 text=t(cfg["label_key"]),
                 variable=self._source_vars[src],
                 width=20, height=20,
-                checkbox_width=16, checkbox_height=16,
+                checkbox_width=20, checkbox_height=20,
                 fg_color=cfg["color"], checkmark_color="#fff",
                 hover_color=cfg["color"],
                 font=ctk.CTkFont(size=11),
@@ -444,7 +429,9 @@ class TimelinePanel(ctk.CTkFrame):
         self._zoom(0.7 if event.delta > 0 else 1.43, event.x)
 
     def _on_press(self, event):
+        self._hide_tip(None)
         self._pan_x0 = event.x
+        self._pan_moved = False
         self._pan_vs = self._view_start
         self._pan_ve = self._view_end
         if self._sel_rect:
@@ -459,13 +446,25 @@ class TimelinePanel(ctk.CTkFrame):
             return
         span = (self._pan_ve - self._pan_vs).total_seconds()
         px_per_sec = (W - PAD_L - PAD_R) / max(1, span)
+        if abs(event.x - self._pan_x0) > 3:
+            if not self._pan_moved:
+                self._pan_moved = True
+                self._canvas.configure(cursor="fleur")
+                self._hide_tip(None)
+        if not self._pan_moved:
+            return
         delta_sec = (self._pan_x0 - event.x) / px_per_sec
         self._view_start = self._pan_vs + datetime.timedelta(seconds=delta_sec)
         self._view_end   = self._pan_ve + datetime.timedelta(seconds=delta_sec)
         self._redraw_debounced()
 
     def _on_release(self, event):
+        was_click = self._pan_x0 is not None and not self._pan_moved
         self._pan_x0 = None
+        self._pan_moved = False
+        self._canvas.configure(cursor="crosshair")
+        if was_click:
+            self._on_canvas_click(event)
 
     def _on_scroll(self, *args):
         if not self._data_start or not self._data_end:
@@ -605,6 +604,8 @@ class TimelinePanel(ctk.CTkFrame):
                 return
 
     def _on_hover(self, event):
+        if self._pan_x0 is not None:
+            return
         r = DOT_R + 4
         items = self._canvas.find_overlapping(
             event.x - r, event.y - r, event.x + r, event.y + r)

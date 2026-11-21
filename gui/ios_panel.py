@@ -14,6 +14,8 @@ import customtkinter as ctk
 from core.i18n import t
 from core.ios_manager import iOSManager, has_pymobiledevice
 from core.ios_extractor import iOSExtractor, IOS_MODULES
+from .iconset import module_icon
+from . import theme as th
 
 ACCENT     = "#00d4ff"
 IOS_ACCENT = "#00d4ff"   # iOS blue
@@ -30,6 +32,13 @@ MODULE_ICONS = {
     "ios_device_info": "📱",
     "ios_apps":        "📦",
     "ios_photos":      "🖼",
+}
+
+# Mapování modulů na sdílené značkové ikony (assets/icons/<name>.png)
+ICON_KEYS = {
+    "ios_device_info": "device_info",
+    "ios_apps":        "apps_installed",
+    "ios_photos":      "photos",
 }
 
 
@@ -60,195 +69,70 @@ class iOSPanel(ctk.CTkFrame):
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.grid(row=1, column=0, sticky="nsew")
         body.grid_columnconfigure(0, weight=3, minsize=380)
-        body.grid_columnconfigure(1, weight=2)
+        body.grid_columnconfigure(1, weight=2, minsize=340)
         body.grid_rowconfigure(0, weight=1)
 
         self._build_log(body)
         self._build_modules(body)
 
     def _build_topbar(self):
-        top = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=12)
-        top.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        top.grid_columnconfigure(1, weight=1)
+        tb = th.Toolbar(self, progress=True)
+        tb.grid(row=0, column=0, sticky="ew", pady=(0, th.GAP))
 
-        # Row 0 – library status + device picker
-        row0 = ctk.CTkFrame(top, fg_color="transparent")
-        row0.grid(row=0, column=0, columnspan=3, padx=16, pady=(14, 4), sticky="ew")
-        row0.grid_columnconfigure(1, weight=1)
-
-        ctk.CTkLabel(
-            row0, text=t("ios.device_label"),
-            font=ctk.CTkFont(size=11, weight="bold"),
-            text_color=TEXT_MUTED,
-        ).grid(row=0, column=0, padx=(0, 8))
-
+        # Zdroj: výběr zařízení
+        self._device_lbl = th.field_label(tb.source, t("ios.device_label"))
+        self._device_lbl.pack(side="left", padx=(0, 8))
         self._device_var = ctk.StringVar(value=t("ios.no_device"))
         self._device_combo = ctk.CTkComboBox(
-            row0, variable=self._device_var,
-            values=[t("ios.no_device")],
-            width=320, state="readonly",
-            command=self._on_device_selected,
+            tb.source, variable=self._device_var,
+            values=[t("ios.no_device")], height=th.BTN_H,
+            state="readonly", command=self._on_device_selected,
         )
-        self._device_combo.grid(row=0, column=1, padx=(0, 8), sticky="ew")
+        self._device_combo.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        th.icon_button(tb.source, "↻", self._refresh_devices).pack(side="left")
 
-        ctk.CTkButton(
-            row0, text="↺", width=36, height=30,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            command=self._refresh_devices,
-        ).grid(row=0, column=2)
-
-        # Row 1 – library status
-        self._lib_label = ctk.CTkLabel(
-            top, text="",
-            font=ctk.CTkFont(size=11),
-            text_color=TEXT_MUTED,
-            anchor="w",
-        )
-        self._lib_label.grid(row=1, column=0, columnspan=3,
-                             padx=16, pady=(0, 4), sticky="ew")
-
-        # Row 2 – buttons
-        btn_row = ctk.CTkFrame(top, fg_color="transparent")
-        btn_row.grid(row=2, column=0, columnspan=3, padx=12, pady=(4, 12), sticky="ew")
-
-        self._select_all_btn = ctk.CTkButton(
-            btn_row, text=t("ext.select_all"), width=110, height=32,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            font=ctk.CTkFont(size=12),
-            command=self._select_all,
-        )
-        self._select_all_btn.pack(side="left", padx=(0, 6))
-
-        self._deselect_all_btn = ctk.CTkButton(
-            btn_row, text=t("ext.deselect_all"), width=110, height=32,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            font=ctk.CTkFont(size=12),
-            command=self._deselect_all,
-        )
-        self._deselect_all_btn.pack(side="left")
-
-        self._status_label = ctk.CTkLabel(
-            btn_row, text="", text_color=TEXT_MUTED,
-            font=ctk.CTkFont(size=12),
-        )
+        # Stav + akce
+        self._lib_label = ctk.CTkLabel(tb.info, text="", font=th.f_small(),
+                                       text_color=TEXT_MUTED, anchor="w")
+        self._lib_label.pack(side="left")
+        self._status_label = ctk.CTkLabel(tb.info, text="", text_color=TEXT_MUTED,
+                                          font=th.f_body(), anchor="w")
         self._status_label.pack(side="left", padx=(16, 0))
+        self._progress_label = ctk.CTkLabel(tb.info, text="", font=th.f_small(),
+                                            text_color=TEXT_MUTED, anchor="w")
+        self._progress_label.pack(side="left", padx=(12, 0))
+        self._progress_bar = tb.progress
 
-        self._stop_btn = ctk.CTkButton(
-            btn_row, text=t("ext.stop"),
-            width=90, height=36,
-            fg_color="#f44336", hover_color="#c62828", text_color="#fff",
-            font=ctk.CTkFont(size=13),
-            command=self._on_stop,
-            state="disabled",
-        )
-        self._stop_btn.pack(side="right", padx=(4, 0))
-
-        self._start_btn = ctk.CTkButton(
-            btn_row, text=t("ios.start"),
-            width=160, height=36,
-            fg_color="#1D6F42", hover_color="#145230", text_color="#fff",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            command=self._on_start,
-        )
-        self._start_btn.pack(side="right")
-
-        # Progress bar (hidden until running)
-        self._progress_frame = ctk.CTkFrame(top, fg_color="transparent")
-        self._progress_bar = ctk.CTkProgressBar(
-            self._progress_frame, width=300, height=8, progress_color=self.accent,
-        )
-        self._progress_bar.set(0)
-        self._progress_label = ctk.CTkLabel(
-            self._progress_frame, text="",
-            font=ctk.CTkFont(size=11), text_color=TEXT_MUTED,
-        )
+        self._start_btn = th.primary_button(tb.actions, t("ios.start"), self._on_start)
+        self._stop_btn = th.danger_button(tb.actions, t("ext.stop"), self._on_stop,
+                                          state="disabled")
+        th.pack_row(self._start_btn, self._stop_btn)
 
     def _build_log(self, parent):
-        log_card = ctk.CTkFrame(parent, fg_color=BG_CARD, corner_radius=12)
-        log_card.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-        log_card.grid_columnconfigure(0, weight=1)
-        log_card.grid_rowconfigure(2, weight=1)
-
-        hdr = ctk.CTkFrame(log_card, fg_color="transparent")
-        hdr.grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
-        hdr.grid_columnconfigure(1, weight=1)
-
-        ctk.CTkLabel(
-            hdr, text=t("ext.log_title"),
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=self.accent,
-        ).grid(row=0, column=0, sticky="w")
-
-        self._eta_label = ctk.CTkLabel(
-            hdr, text="", font=ctk.CTkFont(size=11), text_color=TEXT_MUTED,
-        )
-        self._eta_label.grid(row=0, column=1, sticky="e")
-
-        ctk.CTkFrame(log_card, height=1, fg_color="#2a2a3e").grid(
-            row=1, column=0, sticky="ew", padx=14,
-        )
-
-        self._log_box = ctk.CTkTextbox(
-            log_card,
-            fg_color=BG_LOG, text_color="#cccccc",
-            font=ctk.CTkFont(family="Consolas", size=11),
-            corner_radius=8, state="disabled", wrap="word",
-        )
-        self._log_box.grid(row=2, column=0, sticky="nsew", padx=10, pady=(6, 10))
-        self._log_box.tag_config("ok",    foreground=GREEN)
-        self._log_box.tag_config("err",   foreground=RED)
-        self._log_box.tag_config("info",  foreground=self.accent)
-        self._log_box.tag_config("warn",  foreground=ORANGE)
-        self._log_box.tag_config("muted", foreground=TEXT_MUTED)
-        self._log_box.tag_config("sep",   foreground="#2a3a5a")
+        self._log_card = th.LogCard(parent, t("ui.log"))
+        self._log_card.grid(row=0, column=0, sticky="nsew", padx=(0, th.GAP))
+        self._log_box = self._log_card.box
+        self._eta_label = ctk.CTkLabel(self._log_card.header_right, text="",
+                                       font=th.f_small(), text_color=TEXT_MUTED)
+        self._eta_label.pack(side="right")
 
     def _build_modules(self, parent):
-        right = ctk.CTkFrame(parent, fg_color="transparent")
-        right.grid(row=0, column=1, sticky="nsew")
-        right.grid_columnconfigure(0, weight=1)
-        right.grid_rowconfigure(0, weight=1)
-
-        scroll = ctk.CTkScrollableFrame(right, fg_color="transparent")
-        scroll.grid(row=0, column=0, sticky="nsew")
-        scroll.grid_columnconfigure(0, weight=1)
-        self._modules_scroll = scroll
+        self._modules = th.ModuleList(parent, t("ui.modules"), t("ui.all"), t("ui.none"))
+        self._modules.grid(row=0, column=1, sticky="nsew")
+        self._modules_scroll = self._modules.scroll
+        self._select_all_btn = self._modules.btn_all
+        self._deselect_all_btn = self._modules.btn_none
         self._rebuild_module_cards()
 
     def _rebuild_module_cards(self):
         for w in self._modules_scroll.winfo_children():
             w.destroy()
-        for i, (key, _) in enumerate(IOS_MODULES.items()):
-            self._build_card(self._modules_scroll, key, row=i)
-
-    def _build_card(self, parent, key: str, row: int):
-        if key not in self._checkboxes:
-            var = ctk.BooleanVar(value=True)
-            self._checkboxes[key] = var
-        else:
-            var = self._checkboxes[key]
-
-        card = ctk.CTkFrame(parent, fg_color=BG_CARD, corner_radius=10)
-        card.grid(row=row, column=0, sticky="ew", padx=5, pady=5)
-        card.grid_columnconfigure(1, weight=1)
-
-        icon = MODULE_ICONS.get(key, "📁")
-        ctk.CTkLabel(card, text=icon, font=ctk.CTkFont(size=24), width=45).grid(
-            row=0, column=0, rowspan=2, padx=(15, 5), pady=15,
-        )
-        ctk.CTkLabel(
-            card, text=t(f"ios.mod.{key}"),
-            font=ctk.CTkFont(size=13, weight="bold"), anchor="w",
-        ).grid(row=0, column=1, padx=5, pady=(12, 1), sticky="w")
-        ctk.CTkLabel(
-            card, text=t(f"ios.desc.{key}"),
-            font=ctk.CTkFont(size=11), text_color=TEXT_MUTED,
-            anchor="w", wraplength=260,
-        ).grid(row=1, column=1, padx=5, pady=(0, 12), sticky="w")
-        ctk.CTkCheckBox(
-            card, text="", variable=var, width=24, height=24,
-            checkbox_width=22, checkbox_height=22,
-            checkmark_color="#000", fg_color=self.accent,
-        ).grid(row=0, column=2, rowspan=2, padx=15)
+        self._modules._row = 0
+        for key in IOS_MODULES:
+            var = self._checkboxes.setdefault(key, ctk.BooleanVar(value=True))
+            self._modules.add(key, t(f"ios.mod.{key}"), var, desc=t(f"ios.desc.{key}"),
+                              image=module_icon(ICON_KEYS.get(key, key), size=30),
+                              emoji=MODULE_ICONS.get(key, "📁"))
 
     # ── Device polling ─────────────────────────────────────────────────────
 
@@ -411,17 +295,12 @@ class iOSPanel(ctk.CTkFrame):
             self._start_btn.configure(state="disabled")
             self._stop_btn.configure(state="normal")
             self._status_label.configure(text=t("ext.running"), text_color=TEXT_MUTED)
-            self._progress_frame.grid(
-                row=3, column=0, columnspan=3, padx=20, pady=(0, 10), sticky="ew",
-            )
-            self._progress_bar.pack(side="left", padx=(0, 10))
-            self._progress_label.pack(side="left")
             self._progress_bar.set(0)
             self._log_clear()
         else:
             self._start_btn.configure(state="normal")
             self._stop_btn.configure(state="disabled")
-            self._progress_frame.grid_remove()
+            self._progress_label.configure(text="")
 
     # ── Log helpers ────────────────────────────────────────────────────────
 
@@ -454,8 +333,11 @@ class iOSPanel(ctk.CTkFrame):
     # ── Language refresh ───────────────────────────────────────────────────
 
     def refresh_lang(self):
-        self._select_all_btn.configure(text=t("ext.select_all"))
-        self._deselect_all_btn.configure(text=t("ext.deselect_all"))
+        self._select_all_btn.configure(text=t("ui.all"))
+        self._deselect_all_btn.configure(text=t("ui.none"))
+        self._modules.title.configure(text=t("ui.modules"))
+        self._log_card.title.configure(text=t("ui.log"))
+        self._device_lbl.configure(text=t("ios.device_label"))
         self._start_btn.configure(text=t("ios.start"))
         self._stop_btn.configure(text=t("ext.stop"))
         self._device_combo.configure(

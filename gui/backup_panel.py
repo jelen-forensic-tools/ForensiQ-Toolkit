@@ -11,6 +11,8 @@ from tkinter import filedialog
 import customtkinter as ctk
 from PIL import Image
 from core.i18n import t
+from .iconset import module_icon
+from . import theme as th
 from core.backup_importer import BackupImporter, BACKUP_FORMATS, IMPORT_MODULES, _fmt_label, _mod_label
 
 ACCENT      = "#00d4ff"
@@ -28,6 +30,14 @@ ORANGE_DIM  = "#3d2800"
 WHITE       = "#ffffff"
 
 # Format metadata for UI: key → (icon, i18n_sub_key, icon_color)
+SEL_BG = "#1e2a4a"
+# ikony modulů importu (assets/icons/<key>.png)
+MOD_ICON_KEYS = {
+    "bkp_contacts": "contacts", "bkp_sms": "sms", "bkp_calls": "call_logs",
+    "bkp_media": "media", "bkp_wifi": "wifi", "bkp_calendar": "calendar",
+    "bkp_browser": "browser", "bkp_notes": "notes", "bkp_apps": "apps",
+}
+
 FORMAT_META: dict[str, tuple[str, str, str]] = {
     "auto":    ("🔍", "bkp.auto_sub",    ACCENT),
     "samsung": ("🔷", "bkp.samsung_sub", "#1e90ff"),
@@ -90,193 +100,81 @@ class BackupImportPanel(ctk.CTkFrame):
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.grid(row=1, column=0, sticky="nsew")
         body.grid_columnconfigure(0, weight=3, minsize=380)
-        body.grid_columnconfigure(1, weight=2)
+        body.grid_columnconfigure(1, weight=2, minsize=340)
         body.grid_rowconfigure(0, weight=1)
 
         self._build_log(body)
         self._build_config(body)
 
     def _build_topbar(self, parent):
-        """Horní lišta – pouze akční tlačítka (výstupní složka se volí automaticky)."""
-        top = ctk.CTkFrame(parent, fg_color=BG_CARD, corner_radius=12)
-        top.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        top.grid_columnconfigure(0, weight=1)
+        """Horní lišta – výběr zdroje + akce (výstupní složka se volí automaticky)."""
+        tb = th.Toolbar(parent)
+        tb.grid(row=0, column=0, sticky="ew", pady=(0, th.GAP))
 
-        btn_row = ctk.CTkFrame(top, fg_color="transparent")
-        btn_row.grid(row=0, column=0, sticky="ew", padx=20, pady=14)
-
-        ctk.CTkButton(
-            btn_row, text=t("bkp.pick_file"),
-            font=ctk.CTkFont(size=12),
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            height=32, width=130,
-            command=self._pick_file,
-        ).pack(side="left", padx=(0, 8))
-
-        ctk.CTkButton(
-            btn_row, text=t("bkp.pick_folder"),
-            font=ctk.CTkFont(size=12),
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            height=32, width=130,
-            command=self._pick_folder,
-        ).pack(side="left", padx=(0, 16))
-
-        self._detected_badge = ctk.CTkLabel(
-            btn_row, text="",
-            font=ctk.CTkFont(size=11),
-            text_color=ACCENT,
+        th.pack_row(
+            th.secondary_button(tb.source, t("bkp.pick_file"), self._pick_file),
+            th.secondary_button(tb.source, t("bkp.pick_folder"), self._pick_folder),
         )
-        self._detected_badge.pack(side="left")
+        self._detected_badge = ctk.CTkLabel(tb.source, text="", font=th.f_small(),
+                                            text_color=ACCENT, anchor="w")
+        self._detected_badge.pack(side="left", padx=(16, 0))
 
-        # Tlačítka vpravo – Stop zcela vpravo, Run vlevo od něj
-        self._btn_stop = ctk.CTkButton(
-            btn_row, text=t("ext.stop"),
-            font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color="#f44336", hover_color="#c62828",
-            text_color="#fff", text_color_disabled="#ffffff",
-            width=100, height=38,
-            state="disabled",
-            command=self._stop_import,
-        )
-        self._btn_stop.pack(side="right", padx=(4, 0))
+        self._status_bar = ctk.CTkLabel(tb.info, text="", font=th.f_body(),
+                                        text_color=TEXT_MUTED, anchor="w")
+        self._status_bar.pack(side="left")
 
-        self._btn_run = ctk.CTkButton(
-            btn_row, text=t("bkp.run"),
-            font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color="#1D6F42", hover_color="#145230",
-            text_color="#fff", text_color_disabled="#ffffff",
-            width=150, height=38,
-            command=self._run_import,
-        )
-        self._btn_run.pack(side="right", padx=(0, 4))
-
-        self._status_bar = ctk.CTkLabel(
-            btn_row, text="",
-            font=ctk.CTkFont(size=11),
-            text_color=TEXT_MUTED,
-            anchor="e",
-            width=160,
-        )
-        self._status_bar.pack(side="right", padx=(0, 12))
+        self._btn_run = th.primary_button(tb.actions, t("bkp.run"), self._run_import)
+        self._btn_stop = th.danger_button(tb.actions, t("ext.stop"), self._stop_import,
+                                          state="disabled")
+        th.pack_row(self._btn_run, self._btn_stop)
 
     def _build_log(self, parent):
         """Levý panel – log importu."""
-        log_card = ctk.CTkFrame(parent, fg_color=BG_CARD, corner_radius=12)
-        log_card.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-        log_card.grid_columnconfigure(0, weight=1)
-        log_card.grid_rowconfigure(2, weight=1)
-
-        hdr = ctk.CTkFrame(log_card, fg_color="transparent")
-        hdr.grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
-
-        ctk.CTkLabel(
-            hdr, text=t("bkp.log_title"),
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=ACCENT,
-        ).grid(row=0, column=0, sticky="w")
-
-        ctk.CTkFrame(log_card, height=1, fg_color="#2a2a3e").grid(
-            row=1, column=0, sticky="ew", padx=14,
-        )
-
-        self._log_box = ctk.CTkTextbox(
-            log_card,
-            font=ctk.CTkFont(family="Consolas", size=11),
-            fg_color=BG_DARK,
-            text_color="#cccccc",
-            wrap="word",
-            state="disabled",
-            corner_radius=8,
-        )
-        self._log_box.grid(row=2, column=0, sticky="nsew", padx=10, pady=(6, 10))
+        self._log_card = th.LogCard(parent, t("ui.log"))
+        self._log_card.grid(row=0, column=0, sticky="nsew", padx=(0, th.GAP))
+        self._log_box = self._log_card.box
 
     def _build_config(self, parent):
         """Pravý panel – výběr formátu a modulů."""
-        right = ctk.CTkScrollableFrame(parent, fg_color="transparent")
-        right.grid(row=0, column=1, sticky="nsew")
-        right.grid_columnconfigure(0, weight=1)
+        self._modules = th.ModuleList(parent)
+        self._modules.grid(row=0, column=1, sticky="nsew")
+        right = self._modules.scroll
 
-        for i, fmt_key in enumerate(BACKUP_FORMATS):
+        self._modules.add_section(t("bkp.format_title"))
+        for fmt_key in BACKUP_FORMATS:
             icon, sub_key, _ = FORMAT_META.get(fmt_key, ("📦", "", ACCENT))
-            frame = self._format_btn(right, row=i, icon=icon,
+            frame = self._format_btn(right, row=self._modules.next_row(), icon=icon,
                                      title=_fmt_label(fmt_key), sub=t(sub_key), value=fmt_key)
             self._fmt_btns[fmt_key] = frame
 
-        sep_row = len(BACKUP_FORMATS)
-        ctk.CTkFrame(right, height=1, fg_color="#2a2a3e").grid(
-            row=sep_row, column=0, sticky="ew", padx=8, pady=(12, 8)
-        )
-
-        # Moduly
-        ctk.CTkLabel(
-            right, text=t("bkp.modules_title"),
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=WHITE,
-        ).grid(row=sep_row + 1, column=0, padx=8, pady=(0, 8), sticky="w")
-
-        for i, key in enumerate(IMPORT_MODULES):
-            cb = ctk.CTkCheckBox(
-                right, text=_mod_label(key),
-                variable=self._module_vars[key],
-                font=ctk.CTkFont(size=12),
-                checkbox_width=18, checkbox_height=18,
-                fg_color=ACCENT, checkmark_color="#000",
-            )
-            cb.grid(row=sep_row + 2 + i, column=0, padx=12, pady=4, sticky="w")
-
-        btn_row_start = sep_row + 2 + len(IMPORT_MODULES)
-        sel_row = ctk.CTkFrame(right, fg_color="transparent")
-        sel_row.grid(row=btn_row_start, column=0, padx=8, pady=(8, 12), sticky="ew")
-        sel_row.grid_columnconfigure((0, 1), weight=1)
-
-        ctk.CTkButton(
-            sel_row, text=t("bkp.select_all"),
-            font=ctk.CTkFont(size=10),
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            height=26,
-            command=lambda: [v.set(True) for v in self._module_vars.values()],
-        ).grid(row=0, column=0, padx=(0, 3), sticky="ew")
-
-        ctk.CTkButton(
-            sel_row, text=t("bkp.deselect_all"),
-            font=ctk.CTkFont(size=10),
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            height=26,
-            command=lambda: [v.set(False) for v in self._module_vars.values()],
-        ).grid(row=0, column=1, padx=(3, 0), sticky="ew")
+        self._modules.add_section(t("ui.modules"), all_text=t("ui.all"),
+                                  none_text=t("ui.none"))
+        for key in IMPORT_MODULES:
+            self._modules.add(key, _mod_label(key), self._module_vars[key],
+                              image=module_icon(MOD_ICON_KEYS.get(key, key), size=30),
+                              emoji="📁")
 
     def _format_btn(self, parent, row, icon, title, sub, value) -> ctk.CTkFrame:
         is_sel = self._selected_fmt.get() == value
         frame = ctk.CTkFrame(
-            parent,
-            fg_color="#1e2a4a" if is_sel else BG_CARD,
-            corner_radius=10,
-            cursor="hand2",
+            parent, fg_color=SEL_BG if is_sel else BG_CARD,
+            border_width=1, border_color=ACCENT if is_sel else BG_CARD,
+            corner_radius=th.RADIUS_ITEM, cursor="hand2",
         )
-        frame.grid(row=row, column=0, padx=5, pady=5, sticky="ew")
+        frame.grid(row=row, column=0, padx=4, pady=3, sticky="ew")
         frame.grid_columnconfigure(1, weight=1)
 
         img = self._fmt_icons.get(value)
         if img is not None:
-            ctk.CTkLabel(frame, text="", image=img, width=45).grid(
-                row=0, column=0, rowspan=2, padx=(15, 5), pady=12
-            )
+            ctk.CTkLabel(frame, text="", image=img, width=36).grid(
+                row=0, column=0, rowspan=2, padx=(12, 8), pady=10)
         else:
-            ctk.CTkLabel(frame, text=icon, font=ctk.CTkFont(size=24), width=45).grid(
-                row=0, column=0, rowspan=2, padx=(15, 5), pady=15
-            )
-        ctk.CTkLabel(
-            frame, text=title,
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=ACCENT if is_sel else WHITE,
-            anchor="w",
-        ).grid(row=0, column=1, sticky="w", pady=(12, 1), padx=(0, 8))
-        ctk.CTkLabel(
-            frame, text=sub,
-            font=ctk.CTkFont(size=11),
-            text_color=TEXT_MUTED,
-            anchor="w",
-        ).grid(row=1, column=1, sticky="w", pady=(0, 12), padx=(0, 8))
+            ctk.CTkLabel(frame, text=icon, font=ctk.CTkFont(size=20), width=36).grid(
+                row=0, column=0, rowspan=2, padx=(12, 8), pady=10)
+        ctk.CTkLabel(frame, text=title, font=th.f_bold(), text_color=WHITE,
+                     anchor="w").grid(row=0, column=1, sticky="w", pady=(10, 0), padx=(0, 8))
+        ctk.CTkLabel(frame, text=sub, font=th.f_small(), text_color=TEXT_MUTED,
+                     anchor="w").grid(row=1, column=1, sticky="w", pady=(0, 10), padx=(0, 8))
 
         for w in frame.winfo_children():
             w.bind("<Button-1>", lambda e, v=value: self._select_format(v))
@@ -289,10 +187,8 @@ class BackupImportPanel(ctk.CTkFrame):
         self._selected_fmt.set(value)
         for fmt_key, frame in self._fmt_btns.items():
             sel = fmt_key == value
-            frame.configure(fg_color="#1e2a4a" if sel else "#16213e")
-            for w in frame.winfo_children():
-                if isinstance(w, ctk.CTkLabel) and w.cget("font").cget("weight") == "bold":
-                    w.configure(text_color=ACCENT if sel else WHITE)
+            frame.configure(fg_color=SEL_BG if sel else BG_CARD,
+                            border_color=ACCENT if sel else BG_CARD)
 
     def _pick_file(self):
         path = filedialog.askopenfilename(

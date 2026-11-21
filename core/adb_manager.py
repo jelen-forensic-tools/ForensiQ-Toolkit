@@ -152,9 +152,17 @@ class ADBManager:
             "treble":           "ro.treble.enabled",
             "vndk_version":     "ro.vndk.version",
         }
+        # Všechny systémové vlastnosti najednou – jediný `getprop` dump místo
+        # ~23 samostatných volání `adb shell getprop <klíč>` (každé je round-trip
+        # přes USB). Výstup má tvar řádků `[klíč]: [hodnota]`.
+        prop_dump = self.shell("getprop")
+        all_props: dict = {}
+        for pm in re.finditer(r"^\[([^\]]+)\]:\s*\[(.*)\]$", prop_dump, re.MULTILINE):
+            all_props[pm.group(1)] = pm.group(2)
+
         info = {}
         for key, prop in props.items():
-            val = self.shell(f"getprop {prop}")
+            val = all_props.get(prop, "").strip()
             info[key] = val if val else "N/A"
 
         # Formátuj IMEI z getprop (pouze číslice, mezery po 3)
@@ -171,34 +179,59 @@ class ADBManager:
                 digits = re.sub(r"[^0-9]", "", "".join(imeis))
                 info["imei"] = " ".join(digits[i:i+3] for i in range(0, len(digits), 3))
 
+        # Šifrování – také obyčejná vlastnost, bereme ji z téhož dumpu.
+        crypto = all_props.get("ro.crypto.state", "").strip()
+        info["encryption"] = crypto if crypto else "N/A"
+
+        # Zbývající (ne-getprop) dotazy sloučené do jediného compound příkazu
+        # oddělené unikátními značkami – místo ~9 samostatných shell volání.
+        _MARK = "\x1f@FQ@\x1f"
+        batch_cmd = (
+            f"echo '{_MARK}battery'; dumpsys battery 2>/dev/null | grep level; "
+            f"echo '{_MARK}kernel'; uname -r; "
+            f"echo '{_MARK}selinux'; getenforce 2>/dev/null; "
+            f"echo '{_MARK}root'; which su 2>/dev/null || su -c id 2>/dev/null; "
+            f"echo '{_MARK}dev'; settings get global development_settings_enabled 2>/dev/null; "
+            f"echo '{_MARK}mem'; cat /proc/meminfo 2>/dev/null | grep MemTotal; "
+            f"echo '{_MARK}wsize'; wm size 2>/dev/null; "
+            f"echo '{_MARK}wdens'; wm density 2>/dev/null; "
+            f"echo '{_MARK}df'; df /data 2>/dev/null | tail -1; "
+            f"echo '{_MARK}end'"
+        )
+        sections: dict = {}
+        cur = None
+        for ln in self.shell(batch_cmd).split("\n"):
+            s = ln.rstrip("\r")
+            if s.startswith(_MARK):
+                cur = s[len(_MARK):].strip()
+                sections[cur] = []
+            elif cur is not None:
+                sections[cur].append(s)
+        def _sec(name: str) -> str:
+            return "\n".join(sections.get(name, [])).strip()
+
         # Kapacita baterie
-        battery = self.shell("dumpsys battery | grep level")
-        match = re.search(r"level:\s*(\d+)", battery)
+        match = re.search(r"level:\s*(\d+)", _sec("battery"))
         info["battery"] = f"{match.group(1)}%" if match else "N/A"
 
         # Kernel verze
-        kernel = self.shell("uname -r")
+        kernel = _sec("kernel")
         info["kernel"] = kernel if kernel else "N/A"
 
         # SELinux stav
-        selinux = self.shell("getenforce 2>/dev/null")
+        selinux = _sec("selinux")
         info["selinux"] = selinux if selinux else "N/A"
 
-        # Šifrování
-        crypto = self.shell("getprop ro.crypto.state")
-        info["encryption"] = crypto if crypto else "N/A"
-
         # Root check
-        root_check = self.shell("which su 2>/dev/null || su -c id 2>/dev/null")
+        root_check = _sec("root")
         info["rooted"] = "Ano" if ("uid=0" in root_check or "/su" in root_check or "/bin/su" in root_check) else "Ne"
 
         # Vývojářský režim
-        dev_mode = self.shell("settings get global development_settings_enabled 2>/dev/null")
+        dev_mode = _sec("dev")
         info["dev_mode"] = "Zapnuto" if dev_mode.strip() == "1" else "Vypnuto"
 
         # RAM
-        mem = self.shell("cat /proc/meminfo | grep MemTotal")
-        m = re.search(r"MemTotal:\s*(\d+)\s*kB", mem)
+        m = re.search(r"MemTotal:\s*(\d+)\s*kB", _sec("mem"))
         if m:
             mb = int(m.group(1)) // 1024
             info["ram"] = f"{mb} MB ({round(mb/1024, 1)} GB)"
@@ -206,17 +239,15 @@ class ADBManager:
             info["ram"] = "N/A"
 
         # Rozlišení obrazovky
-        wm_size = self.shell("wm size")
-        m = re.search(r"Physical size:\s*(\S+)", wm_size)
+        m = re.search(r"Physical size:\s*(\S+)", _sec("wsize"))
         info["screen_resolution"] = m.group(1) if m else "N/A"
 
         # DPI
-        wm_dpi = self.shell("wm density")
-        m = re.search(r"Physical density:\s*(\d+)", wm_dpi)
+        m = re.search(r"Physical density:\s*(\d+)", _sec("wdens"))
         info["screen_dpi"] = f"{m.group(1)} DPI" if m else "N/A"
 
         # Úložiště (/data)
-        df_out = self.shell("df /data 2>/dev/null | tail -1")
+        df_out = _sec("df")
         info["storage_raw"] = df_out
         parts = df_out.split()
         if len(parts) >= 4:

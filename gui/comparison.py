@@ -5,6 +5,7 @@ import threading
 from tkinter import filedialog
 from typing import Optional
 from core.i18n import t
+from . import theme as th
 
 ACCENT   = "#00d4ff"
 BG_CARD  = "#16213e"
@@ -15,6 +16,13 @@ CLR_NEW     = "#4CAF50"
 CLR_REMOVED = "#f44336"
 CLR_CHANGED = "#FF9800"
 CLR_SAME    = "#888888"
+
+
+def _tint(color: str, alpha: float = 0.2, bg: str = BG_CARD) -> str:
+    """Barva smíchaná s pozadím (Tk nezná průhlednost typu #RRGGBBAA)."""
+    c = [int(color[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(bg[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(bb + (cc - bb) * alpha):02x}" for cc, bb in zip(c, b))
 
 COMPARABLE_FILES = {
     "contacts.json":        "mod.contacts",
@@ -135,65 +143,29 @@ class ComparisonPanel(ctk.CTkFrame):
         self._build()
 
     def _build(self):
-        # ── Folder selection ─────────────────────────────────────────────────
-        sel_card = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=12)
-        sel_card.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        sel_card.grid_columnconfigure((1, 3), weight=1)
+        # ── Toolbar: výběr dvou záloh + Porovnat ─────────────────────────────
+        tb = th.Toolbar(self)
+        tb.grid(row=0, column=0, sticky="ew", pady=(0, th.GAP))
 
-        # Backup A
-        self._label_a = ctk.CTkLabel(
-            sel_card, text=t("cmp.backup_a"),
-            font=ctk.CTkFont(size=12), text_color=TEXT_MUTED
-        )
-        self._label_a.grid(row=0, column=0, padx=(20, 8), pady=14, sticky="w")
+        def _pick(label_key, var, ph_key, which):
+            lbl = th.field_label(tb.source, t(label_key))
+            lbl.pack(side="left", padx=(0, 8))
+            entry = ctk.CTkEntry(tb.source, textvariable=var, placeholder_text=t(ph_key),
+                                 state="readonly", height=th.BTN_H, font=th.f_body())
+            entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+            btn = th.secondary_button(tb.source, t("cmp.browse"), lambda: self._browse(which),
+                                      width=110)
+            btn.pack(side="left", padx=(0, 18))
+            return lbl, entry, btn
 
-        self._entry_a = ctk.CTkEntry(
-            sel_card, textvariable=self._dir_a,
-            placeholder_text=t("cmp.placeholder_a"),
-            state="readonly", height=34
-        )
-        self._entry_a.grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        self._label_a, self._entry_a, self._browse_a_btn = _pick(
+            "cmp.backup_a", self._dir_a, "cmp.placeholder_a", "a")
+        self._label_b, self._entry_b, self._browse_b_btn = _pick(
+            "cmp.backup_b", self._dir_b, "cmp.placeholder_b", "b")
 
-        self._browse_a_btn = ctk.CTkButton(
-            sel_card, text=t("cmp.browse"), width=100, height=34,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            command=lambda: self._browse("a")
-        )
-        self._browse_a_btn.grid(row=0, column=2, padx=(0, 20))
-
-        # Backup B
-        self._label_b = ctk.CTkLabel(
-            sel_card, text=t("cmp.backup_b"),
-            font=ctk.CTkFont(size=12), text_color=TEXT_MUTED
-        )
-        self._label_b.grid(row=1, column=0, padx=(20, 8), pady=(0, 14), sticky="w")
-
-        self._entry_b = ctk.CTkEntry(
-            sel_card, textvariable=self._dir_b,
-            placeholder_text=t("cmp.placeholder_b"),
-            state="readonly", height=34
-        )
-        self._entry_b.grid(row=1, column=1, sticky="ew", padx=(0, 8))
-
-        self._browse_b_btn = ctk.CTkButton(
-            sel_card, text=t("cmp.browse"), width=100, height=34,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            command=lambda: self._browse("b")
-        )
-        self._browse_b_btn.grid(row=1, column=2, padx=(0, 20))
-
-        # Compare button
-        btn_row = ctk.CTkFrame(sel_card, fg_color="transparent")
-        btn_row.grid(row=2, column=0, columnspan=4, pady=(0, 14), padx=20, sticky="e")
-
-        self._compare_btn = ctk.CTkButton(
-            btn_row, text=t("cmp.compare"),
-            width=160, height=38,
-            fg_color=self.accent, text_color="#000",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            command=self._run_comparison
-        )
-        self._compare_btn.pack()
+        self._compare_btn = th.primary_button(tb.actions, t("cmp.compare"),
+                                              self._run_comparison)
+        self._compare_btn.pack(side="left")
 
         # ── Results ──────────────────────────────────────────────────────────
         self._scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
@@ -204,7 +176,7 @@ class ComparisonPanel(ctk.CTkFrame):
             self._scroll,
             text=t("cmp.placeholder"),
             text_color=TEXT_MUTED,
-            font=ctk.CTkFont(size=13),
+            font=th.f_body(),
             wraplength=500, justify="center",
         )
         self._placeholder.grid(row=0, column=0, pady=40)
@@ -308,7 +280,7 @@ class ComparisonPanel(ctk.CTkFrame):
         badges.grid(row=0, column=2, padx=15)
 
         def _badge(parent, text, color):
-            f = ctk.CTkFrame(parent, fg_color=color + "33", corner_radius=6)
+            f = ctk.CTkFrame(parent, fg_color=_tint(color), corner_radius=6)
             f.pack(side="left", padx=3)
             ctk.CTkLabel(f, text=text, text_color=color,
                          font=ctk.CTkFont(size=11, weight="bold")).pack(padx=8, pady=3)

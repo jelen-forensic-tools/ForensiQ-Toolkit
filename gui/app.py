@@ -4,21 +4,15 @@ import datetime
 import os
 import sys
 from tkinter import filedialog
+# Pozn.: panely, extractor a report se importují AŽ při prvním použití
+# (viz _build_panel a jednotlivé handlery). Tím startuje okno rychle – jinak by
+# se hned při importu natáhly těžké závislosti (deepdiff, reportlab,
+# pymobiledevice3, paramiko, tkintermapview) i pro panely, které uživatel
+# třeba vůbec neotevře.
 from .dashboard import DeviceDashboard
-from .extraction import ExtractionPanel
-from .comparison import ComparisonPanel
-from .timeline import TimelinePanel
 from .wifi_dialog import WifiConnectDialog
-from .bypass_panel import BypassPanel
-from .map_panel import MapPanel
-from .backup_panel import BackupImportPanel
-from .results_panel import ResultsPanel
-from .ios_panel import iOSPanel
-from .ios_backup_panel import iOSBackupPanel
-from .ios_ramdisk_panel import iOSRamdiskPanel
+from .logo import logo_ctk_image
 from core.adb_manager import ADBManager
-from core.extractor import Extractor, EXTRACTION_MODULES
-from core.report import generate_report, generate_pdf_report, generate_excel_report
 from core.evidence import generate_manifest, verify_manifest, MANIFEST_TXT
 from core.i18n import t, set_lang, get_lang, retranslate
 
@@ -31,6 +25,50 @@ BG_DARK    = "#0f0f1a"
 BG_CARD    = "#16213e"
 BG_PANEL   = "#1a1a2e"
 TEXT_MUTED = "#888888"
+
+
+def _app_icon_path() -> str | None:
+    """Cesta k ikoně ForenziQ (zdrojáky i .exe balíček), None pokud chybí."""
+    if getattr(sys, "frozen", False):
+        base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    else:
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ico = os.path.join(base, "assets", "forenziq.ico")
+    return ico if os.path.exists(ico) else None
+
+
+def _install_toplevel_icon():
+    """Všechna nová okna (CTkToplevel) dostanou ikonu ForenziQ.
+
+    CTkToplevel na Windows ~200 ms po vytvoření natvrdo nastaví svou výchozí
+    ikonu CustomTkinteru (přes iconbitmap). Tu proto přesměrujeme na naši
+    a navíc ji nastavíme hned při vytvoření okna (bez probliknutí).
+    """
+    ico = _app_icon_path()
+    if not ico or getattr(ctk.CTkToplevel, "_fq_icon_patched", False):
+        return
+    orig_init = ctk.CTkToplevel.__init__
+    orig_icon = ctk.CTkToplevel.wm_iconbitmap
+
+    def wm_iconbitmap(self, bitmap=None, default=None):
+        if isinstance(bitmap, str) and bitmap.endswith("CustomTkinter_icon_Windows.ico"):
+            bitmap = ico
+        return orig_icon(self, bitmap, default)
+
+    def __init__(self, *args, **kwargs):
+        orig_init(self, *args, **kwargs)
+        try:
+            wm_iconbitmap(self, ico)
+        except Exception:
+            pass
+
+    ctk.CTkToplevel.__init__ = __init__
+    ctk.CTkToplevel.wm_iconbitmap = wm_iconbitmap
+    ctk.CTkToplevel.iconbitmap = wm_iconbitmap
+    ctk.CTkToplevel._fq_icon_patched = True
+
+
+_install_toplevel_icon()
 
 
 def _detect_scale() -> float:
@@ -61,32 +99,72 @@ class ForenziQApp(ctk.CTk):
 
         self.title("ForenziQ Toolkit")
         self._set_app_icon()
-        # Default geometry adapted to resolution
-        w = int(1280 * self._scale)
-        h = int(800 * self._scale)
-        self.geometry(f"{w}x{h}")
-        self.minsize(int(1024 * self._scale), int(680 * self._scale))
+        # Velikost okna přizpůsobená obrazovce. „Obnovená" velikost i minimální
+        # velikost se VŽDY ořežou tak, aby se vešly na aktuální obrazovku (jinak
+        # by na malých displejích – např. 1366×768 – okno přetékalo pod lištu
+        # nebo nešlo zmenšit). Aplikace se stejně spouští maximalizovaná.
+        # CTk hodnoty geometry()/minsize() ještě sám násobí window scalingem,
+        # proto počítáme v NEškálovaných jednotkách (obrazovka / scale) – jinak
+        # by na jiném rozlišení/DPI okno i minimální velikost přesáhly obrazovku.
+        s = self._scale or 1.0
+        sw = int(self.winfo_screenwidth() / s)
+        sh = int(self.winfo_screenheight() / s)
+        w = min(1280, sw - 80)
+        h = min(800, sh - 120)
+        min_w = min(1024, max(sw - 40, 640))
+        min_h = min(660, max(sh - 80, 480))
+        x = max((sw - w) // 2, 0)
+        y = max((sh - h) // 3, 0)
+        self.geometry(f"{w}x{h}+{x}+{y}")
+        self.minsize(min_w, min_h)
         self.configure(fg_color=BG_DARK)
         # Spustit maximalizované přes celou obrazovku (horní lišta a ovládání
         # okna zůstávají; výše nastavená velikost slouží jako obnovená velikost).
-        self.after(0, lambda: self.state("zoomed"))
+        # Pozn.: CTk na Windows okno po startu skryje a znovu zobrazí (tmavá
+        # titulní lišta) a tím přepíše stav „zoomed" nastavený příliš brzy.
+        # Na pomalejším PC (rozbalování onefile .exe) to trvá déle, proto se
+        # maximalizace opakovaně kontroluje, dokud stav „zoomed" nevydrží.
+        self._maximize_checks = 0
+        self._maximize_ok = 0
+        self.after(150, self._maximize)
 
         self.adb = ADBManager()
         self.extractor: Extractor | None = None
         self.current_device: dict | None = None
         self.device_info: dict = {}
         self.output_dir = ""
+        self._search_dir = ""        # složka pro panel Hledání (indexuje se až v něm)
         self._extraction_results: list = []
         self._current_view = "dashboard"
         self._last_device_serials: list = []   # cache pro smart polling
         self._closing = False
         self._poll_after_id = None
+        self._prewarm_after_id = None
 
         self._build_ui()
         self._check_adb()
         self._start_device_polling()
+        # Předehřej ostatní panely na pozadí → přepínání je pak okamžité
+        self._prewarm_after_id = self.after(1200, self._prewarm_panels)
         # Čisté zavření – zastaví polling i běžící úlohy, pak zničí okno naráz
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _maximize(self):
+        """Maximalizuje okno přes celou obrazovku (lišta a ovládání okna zůstávají)."""
+        if getattr(self, "_closing", False):
+            return
+        self._maximize_checks += 1
+        try:
+            if self.state() == "zoomed":
+                self._maximize_ok += 1
+            else:
+                self._maximize_ok = 0
+                self.state("zoomed")
+        except Exception:
+            pass
+        # Hotovo, až stav „zoomed" vydrží 3 kontroly po sobě (max. ~8 s)
+        if self._maximize_ok < 3 and self._maximize_checks < 20:
+            self.after(400, self._maximize)
 
     def _on_close(self):
         """Zastaví naplánované callbacky a vlákna, pak zavře okno v jednom kroku
@@ -94,32 +172,44 @@ class ForenziQApp(ctk.CTk):
         if self._closing:
             return
         self._closing = True
-        if self._poll_after_id is not None:
-            try:
-                self.after_cancel(self._poll_after_id)
-            except Exception:
-                pass
+        # Zruš naplánované callbacky (polling, předehřívání)
+        for attr in ("_poll_after_id", "_prewarm_after_id"):
+            aid = getattr(self, attr, None)
+            if aid is not None:
+                try:
+                    self.after_cancel(aid)
+                except Exception:
+                    pass
+                setattr(self, attr, None)
         try:
             if self.extractor:
                 self.extractor.stop()
         except Exception:
             pass
         try:
+            sp = self._view_panels.get("search")
+            if sp is not None:
+                sp.shutdown()          # zastaví indexaci na pozadí
+        except Exception:
+            pass
+        # Okno nejprve skryj – uživatel pak nevidí postupné ničení widgetů
+        # (mapové dlaždice, canvas apod.), takže se obraz při zavírání „nesype".
+        try:
+            self.withdraw()
+        except Exception:
+            pass
+        try:
             self.quit()      # ukončí mainloop
         finally:
-            self.destroy()   # zničí okno naráz
+            self.destroy()   # zničí okno naráz (už skryté)
 
     # ── UI construction ──────────────────────────────────────────────────────
 
     def _set_app_icon(self):
         """Nastaví ikonu okna – funguje ze zdrojáků i z .exe balíčku."""
-        if getattr(sys, "frozen", False):
-            base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
-        else:
-            base = os.path.dirname(os.path.dirname(__file__))
-        ico = os.path.join(base, "assets", "forenziq.ico")
+        ico = _app_icon_path()
         try:
-            if os.path.exists(ico):
+            if ico:
                 self.iconbitmap(ico)
         except Exception:
             pass
@@ -146,41 +236,30 @@ class ForenziQApp(ctk.CTk):
         logo_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
         logo_frame.grid(row=0, column=0, padx=20, pady=(22, 4), sticky="w")
 
-        ctk.CTkLabel(
-            logo_frame, text="ForenziQ",
-            font=ctk.CTkFont(size=24, weight="bold"),
-            text_color=ACCENT
-        ).pack(anchor="w")
-        ctk.CTkLabel(
-            logo_frame, text="Toolkit",
-            font=ctk.CTkFont(size=20, weight="bold"),
-            text_color="#ffffff"
-        ).pack(anchor="w")
-        ctk.CTkLabel(
-            logo_frame, text="v1.0",
-            font=ctk.CTkFont(size=10),
-            text_color=TEXT_MUTED
-        ).pack(anchor="w")
+        # Logo: "Forenzi" + lupa místo Q, "Toolkit", verze – jeden obrázek, přesně zarovnaný
+        self._logo_img = logo_ctk_image(accent=ACCENT, ver_color=TEXT_MUTED, version="v1.0")
+        ctk.CTkLabel(logo_frame, text="", image=self._logo_img).pack(anchor="w")
 
         lang_frame_top = ctk.CTkFrame(top_frame, fg_color="transparent")
         lang_frame_top.grid(row=1, column=0, padx=20, pady=(0, 10), sticky="w")
         lang_frame_top.grid_columnconfigure((0, 1), weight=1)
 
-        self._btn_cs = ctk.CTkButton(
-            lang_frame_top, text="CS", width=44, height=24,
-            fg_color=ACCENT, text_color="#000",
-            font=ctk.CTkFont(size=11, weight="bold"),
-            command=lambda: self._set_lang("cs")
-        )
-        self._btn_cs.grid(row=0, column=0, padx=(0, 4))
-
+        # Aplikace startuje v angličtině (EN vlevo a aktivní), CS je volitelná
         self._btn_en = ctk.CTkButton(
             lang_frame_top, text="EN", width=44, height=24,
-            fg_color="#2a2a4a", text_color="#cccccc",
-            font=ctk.CTkFont(size=11),
+            fg_color=ACCENT, text_color="#000",
+            font=ctk.CTkFont(size=11, weight="bold"),
             command=lambda: self._set_lang("en")
         )
-        self._btn_en.grid(row=0, column=1)
+        self._btn_en.grid(row=0, column=0, padx=(0, 4))
+
+        self._btn_cs = ctk.CTkButton(
+            lang_frame_top, text="CS", width=44, height=24,
+            fg_color="#2a2a4a", text_color="#cccccc",
+            font=ctk.CTkFont(size=11),
+            command=lambda: self._set_lang("cs")
+        )
+        self._btn_cs.grid(row=0, column=1)
 
         ctk.CTkFrame(top_frame, height=1, fg_color="#2a2a3e").grid(
             row=2, column=0, sticky="ew", padx=15, pady=5)
@@ -198,19 +277,25 @@ class ForenziQApp(ctk.CTk):
             ("overview",   "nav.overview"),
             ("extraction", "nav.extraction"),
             ("results",    "nav.results"),
+            ("search",     "nav.search"),
             ("backup",     "nav.backup"),
             ("ios",         "nav.ios"),
             ("ios_backup",  "nav.ios_backup"),
             ("ios_ramdisk", "nav.ios_ramdisk"),
+            ("adump",       "nav.adump"),
+            ("s30",         "nav.s30"),
             ("comparison",  "nav.comparison"),
             ("timeline",   "nav.timeline"),
             ("map",        "nav.map"),
             ("bypass",     "nav.bypass"),
+            ("settings",   "nav.settings"),
         ]
         self._nav_key_map = {
             "overview":   "dashboard",
+            "settings":   "settings",
             "extraction": "extraction",
             "results":    "results",
+            "search":     "search",
             "comparison": "comparison",
             "timeline":   "timeline",
             "map":        "map",
@@ -219,6 +304,8 @@ class ForenziQApp(ctk.CTk):
             "ios":         "ios",
             "ios_backup":  "ios_backup",
             "ios_ramdisk": "ios_ramdisk",
+            "s30":         "s30",
+            "adump":       "adump",
         }
         self._nav_buttons = {}
 
@@ -322,11 +409,13 @@ class ForenziQApp(ctk.CTk):
             p = DeviceDashboard(self._content, accent=ACCENT)
             self._dashboard = p
         elif view == "extraction":
+            from .extraction import ExtractionPanel
             p = ExtractionPanel(self._content, accent=ACCENT,
                                 on_start=self._start_extraction,
                                 on_stop=self._stop_extraction)
             self._extraction_panel = p
         elif view == "results":
+            from .results_panel import ResultsPanel
             p = ResultsPanel(self._content, accent=ACCENT,
                              on_open_output=self._open_output_dir,
                              on_html=self._open_report,
@@ -335,34 +424,64 @@ class ForenziQApp(ctk.CTk):
                              on_evidence=self._generate_evidence,
                              on_verify=self._verify_evidence)
             self._results_panel = p
+        elif view == "search":
+            from .search_panel import SearchPanel
+            p = SearchPanel(self._content, accent=ACCENT)
+            self._search_panel = p
+            if self._search_dir:
+                p.set_dir(self._search_dir)
         elif view == "comparison":
+            from .comparison import ComparisonPanel
             p = ComparisonPanel(self._content, accent=ACCENT)
             self._comparison_panel = p
         elif view == "timeline":
+            from .timeline import TimelinePanel
             p = TimelinePanel(self._content, accent=ACCENT)
             self._timeline_panel = p
         elif view == "map":
+            from .map_panel import MapPanel
             p = MapPanel(self._content, accent=ACCENT)
             self._map_panel = p
         elif view == "bypass":
+            from .bypass_panel import BypassPanel
             p = BypassPanel(self._content, adb=self.adb, accent=ACCENT)
             self._bypass_panel = p
+        elif view == "settings":
+            from .settings_panel import SettingsPanel
+            p = SettingsPanel(self._content, accent=ACCENT)
+            self._settings_panel = p
         elif view == "backup":
+            from .backup_panel import BackupImportPanel
             p = BackupImportPanel(self._content, accent=ACCENT)
             self._backup_panel = p
         elif view == "ios":
+            from .ios_panel import iOSPanel
             p = iOSPanel(self._content, accent="#00d4ff")
             self._ios_panel = p
         elif view == "ios_backup":
+            from .ios_backup_panel import iOSBackupPanel
             p = iOSBackupPanel(self._content, accent="#00d4ff")
             self._ios_backup_panel = p
         elif view == "ios_ramdisk":
+            from .ios_ramdisk_panel import iOSRamdiskPanel
             p = iOSRamdiskPanel(self._content, accent="#00d4ff")
             self._ios_ramdisk_panel = p
+        elif view == "s30":
+            from .s30_panel import S30Panel
+            p = S30Panel(self._content, accent=ACCENT, on_finished=self._on_s30_finished)
+            self._s30_panel = p
+        elif view == "adump":
+            from .android_dump_panel import AndroidDumpPanel
+            p = AndroidDumpPanel(self._content, accent=ACCENT, on_finished=self._on_adump_finished)
+            self._adump_panel = p
         else:
             return None
 
         p.grid(row=0, column=0, sticky="nsew")
+        # Panel postavený mimo aktivní pohled (předehřívání) pošli pod aktuální,
+        # ať neprobleskne navrch; aktivní panel zůstane viditelný.
+        if view != self._current_view:
+            p.lower()
         self._view_panels[view] = p
         return p
 
@@ -373,6 +492,7 @@ class ForenziQApp(ctk.CTk):
         "dashboard":  "topbar.dashboard",
         "extraction": "topbar.extraction",
         "results":    "topbar.results",
+        "search":     "topbar.search",
         "comparison": "topbar.comparison",
         "timeline":   "topbar.timeline",
         "map":        "topbar.map",
@@ -381,6 +501,9 @@ class ForenziQApp(ctk.CTk):
         "ios":         "topbar.ios",
         "ios_backup":  "topbar.ios_backup",
         "ios_ramdisk": "topbar.ios_ramdisk",
+        "s30":         "topbar.s30",
+        "adump":       "topbar.adump",
+        "settings":    "topbar.settings",
     }
 
     def _navigate(self, view: str):
@@ -408,9 +531,32 @@ class ForenziQApp(ctk.CTk):
             if panel is not None and hasattr(panel, "refresh_lang"):
                 panel.refresh_lang()
 
-        # Flush čekající překreslení před přepnutím → eliminuje trhání
-        self.update_idletasks()
+        # Přepnutí = jen vyzvednutí hotového panelu navrch (lift). Panel se už
+        # nepřekresluje (byl vykreslen při stavbě / předehřátí) → okamžité a
+        # plynulé přepínání.
         self._view_panels[view].lift()
+
+    # ── Předehřívání panelů ────────────────────────────────────────────────────
+
+    def _prewarm_panels(self):
+        """Na pozadí postaví jen NEJČASTĚJŠÍ panely, aby jejich první otevření
+        bylo okamžité. Zbytek se staví líně až při prvním otevření – stavění
+        (a vykreslení desítek zaoblených karet) je v CustomTkinteru drahé, takže
+        předehřívat všechno by hned po startu zahltilo UI. Mapa a iOS se
+        vynechávají (samy spouští stahování dlaždic / USB polling)."""
+        if self._closing:
+            return
+        PREWARM_ORDER = ["extraction", "results"]
+        nxt = next((v for v in PREWARM_ORDER if v not in self._view_panels), None)
+        if nxt is None:
+            self._prewarm_after_id = None
+            return
+        try:
+            self._build_panel(nxt)
+        except Exception:
+            pass
+        # Větší rozestup → UI mezi stavbami zůstane svižné
+        self._prewarm_after_id = self.after(250, self._prewarm_panels)
 
     # ── Language ──────────────────────────────────────────────────────────────
 
@@ -471,6 +617,7 @@ class ForenziQApp(ctk.CTk):
             "dashboard":  "nav.overview",
             "extraction": "nav.extraction",
             "results":    "nav.results",
+            "search":     "nav.search",
             "comparison": "nav.comparison",
             "timeline":   "nav.timeline",
             "map":        "nav.map",
@@ -479,6 +626,9 @@ class ForenziQApp(ctk.CTk):
             "ios":         "nav.ios",
             "ios_backup":  "nav.ios_backup",
             "ios_ramdisk": "nav.ios_ramdisk",
+            "s30":         "nav.s30",
+            "adump":       "nav.adump",
+            "settings":    "nav.settings",
         }
         for view_key, btn in self._nav_buttons.items():
             label_key = nav_label_keys.get(view_key, view_key)
@@ -590,6 +740,7 @@ class ForenziQApp(ctk.CTk):
         self.output_dir = os.path.join(base_dir, default_name)
         os.makedirs(self.output_dir, exist_ok=True)
 
+        from core.extractor import Extractor
         self.extractor = Extractor(self.adb, self.output_dir)
         self._extraction_panel.set_running(True)
         device_label = (self.current_device or {}).get("model", t("misc.unknown_device"))
@@ -642,6 +793,7 @@ class ForenziQApp(ctk.CTk):
         was_stopped = bool(self.extractor and self.extractor._stopped())
         report_path = ""
         try:
+            from core.report import generate_report
             report_path = generate_report(results, self.device_info, self.output_dir)
         except Exception as e:
             print(f"HTML report error: {e}")
@@ -664,7 +816,48 @@ class ForenziQApp(ctk.CTk):
         if self.output_dir:
             self._timeline_panel.load_dir(self.output_dir)
             self._map_panel.load_dir(self.output_dir)
+            self._set_search_dir(self.output_dir)
         self._navigate("results")
+
+    def _on_s30_finished(self, target: str):
+        """S30+ analysis writes sms.json / call_logs.json / file_analysis.json – show them on the timeline."""
+        self._build_panel("timeline")
+        self._timeline_panel.load_dir(target)
+        self._set_search_dir(target)
+
+    def _set_search_dir(self, folder: str):
+        """Předá složku s výsledky panelu Hledání. Pokud panel ještě nebyl
+        otevřen, jen si ji zapamatuje – index se postaví až při jeho otevření."""
+        self._search_dir = folder
+        panel = self._view_panels.get("search")
+        if panel is not None:
+            panel.set_dir(folder)
+
+    def _on_adump_finished(self, results, device_info: dict, target: str):
+        """Android physical dump → same flow as a live extraction (Results, reports, Timeline, Map)."""
+        self._extraction_results = results
+        self.output_dir = target
+        self.device_info = device_info
+
+        def _worker():
+            try:
+                from core.report import generate_report
+                generate_report(results, device_info, target)
+            except Exception as e:
+                print(f"HTML report error: {e}")
+            self.after(0, _show)
+
+        def _show():
+            self._build_panel("results")
+            self._build_panel("timeline")
+            self._build_panel("map")
+            self._update_results_panel(results)
+            self._timeline_panel.load_dir(target)
+            self._map_panel.load_dir(target)
+            self._set_search_dir(target)
+            self._navigate("results")
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _update_results_panel(self, results):
         self._results_panel.update_results(results)
@@ -676,10 +869,14 @@ class ForenziQApp(ctk.CTk):
             self._show_error(t("err.no_extraction"))
             return
 
+        case_meta = getattr(self, "_case_meta", None)
+
         def _worker():
             try:
+                from core.report import generate_pdf_report
                 path = generate_pdf_report(
-                    self._extraction_results, self.device_info, self.output_dir
+                    self._extraction_results, self.device_info, self.output_dir,
+                    case_meta=case_meta,
                 )
                 self.after(0, lambda: self._on_pdf_done(path))
             except Exception as e:
@@ -698,6 +895,7 @@ class ForenziQApp(ctk.CTk):
 
         def _worker():
             try:
+                from core.report import generate_excel_report
                 path = generate_excel_report(
                     self._extraction_results, self.device_info, self.output_dir
                 )
@@ -716,6 +914,8 @@ class ForenziQApp(ctk.CTk):
         EvidenceCaseDialog(self, on_submit=self._do_generate_evidence)
 
     def _do_generate_evidence(self, case_meta: dict):
+        # Zapamatuj údaje o případu → použijí se i na titulní straně PDF reportu
+        self._case_meta = case_meta
         def _worker():
             try:
                 path, manifest = generate_manifest(

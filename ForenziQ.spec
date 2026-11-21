@@ -36,6 +36,10 @@ if os.path.isdir("assets"):
 hiddenimports += [
     "PIL._tkinter_finder",
     "reportlab.graphics.barcode",
+    "core.s30.report",          # S30+ PDF report – importován až za běhu
+    "core.ios_backup_crypto",   # dešifrování šifrovaných iOS záloh – import za běhu
+    "cryptography.hazmat.primitives.keywrap",
+    "cryptography.hazmat.primitives.ciphers",
 ]
 
 a = Analysis(

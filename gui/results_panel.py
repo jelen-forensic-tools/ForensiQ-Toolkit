@@ -19,6 +19,8 @@ except Exception:
     _PIL_OK = False
 
 from core.i18n import t, field_label
+from . import theme as th
+from .iconset import module_icon
 
 # Media file types recognised by the thumbnail gallery
 _IMG_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic", ".heif"}
@@ -108,78 +110,36 @@ class ResultsPanel(ctk.CTkFrame):
     # ── UI construction ───────────────────────────────────────────────────────
 
     def _build(self):
-        # ── Top bar ───────────────────────────────────────────────────────────
-        top = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=12)
-        top.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        top.grid_columnconfigure(1, weight=1)
+        # ── Toolbar: výstup + reporty vlevo, důkazní manifest vpravo ─────────
+        tb = th.Toolbar(self, source=False)
+        tb.grid(row=0, column=0, sticky="ew", pady=(0, th.GAP))
 
-        ctk.CTkLabel(
-            top, text=t("topbar.results"),
-            font=ctk.CTkFont(size=14, weight="bold"),
-        ).grid(row=0, column=0, padx=20, pady=14, sticky="w")
+        def _cb(fn):
+            return lambda: fn and fn()
 
-        btn_frame = ctk.CTkFrame(top, fg_color="transparent")
-        btn_frame.grid(row=0, column=2, padx=20, pady=14)
+        self._btn_open = th.secondary_button(tb.info, t("topbar.open_output"),
+                                             _cb(self._on_open_output), width=140)
+        self._report_lbl = th.field_label(tb.info, t("res.reports"))
+        self._btn_html = th.secondary_button(tb.info, "HTML", _cb(self._on_html), width=80)
+        self._btn_pdf = th.secondary_button(tb.info, "PDF", _cb(self._on_pdf), width=80)
+        self._btn_excel = th.secondary_button(tb.info, "Excel", _cb(self._on_excel), width=80)
+        self._btn_open.pack(side="left")
+        self._report_lbl.pack(side="left", padx=(24, 8))
+        th.pack_row(self._btn_html, self._btn_pdf, self._btn_excel)
+        # pack_row začíná bez mezery – první tlačítko navazuje na popisek
+        self._btn_html.pack_configure(padx=(0, 0))
 
-        self._btn_open = ctk.CTkButton(
-            btn_frame, text=t("topbar.open_output"),
-            width=120, height=38,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            font=ctk.CTkFont(size=12),
-            command=lambda: self._on_open_output and self._on_open_output(),
-        )
-        self._btn_open.pack(side="left", padx=4)
-
-        self._btn_html = ctk.CTkButton(
-            btn_frame, text=t("topbar.html_report"),
-            width=110, height=38,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            font=ctk.CTkFont(size=12),
-            command=lambda: self._on_html and self._on_html(),
-        )
-        self._btn_html.pack(side="left", padx=4)
-
-        self._btn_pdf = ctk.CTkButton(
-            btn_frame, text=t("topbar.pdf_report"),
-            width=110, height=38,
-            fg_color=self.accent, text_color="#000",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            command=lambda: self._on_pdf and self._on_pdf(),
-        )
-        self._btn_pdf.pack(side="left", padx=4)
-
-        self._btn_excel = ctk.CTkButton(
-            btn_frame, text=t("topbar.excel_report"),
-            width=110, height=38,
-            fg_color="#1D6F42", hover_color="#145230",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            command=lambda: self._on_excel and self._on_excel(),
-        )
-        self._btn_excel.pack(side="left", padx=4)
-
-        self._btn_evidence = ctk.CTkButton(
-            btn_frame, text=t("ev.generate_btn"),
-            width=130, height=38,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            font=ctk.CTkFont(size=12),
-            command=lambda: self._on_evidence and self._on_evidence(),
-        )
-        self._btn_evidence.pack(side="left", padx=4)
-
-        self._btn_verify = ctk.CTkButton(
-            btn_frame, text=t("ev.verify_btn"),
-            width=110, height=38,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            font=ctk.CTkFont(size=12),
-            command=lambda: self._on_verify and self._on_verify(),
-        )
-        self._btn_verify.pack(side="left", padx=4)
+        self._btn_evidence = th.secondary_button(tb.actions, t("ev.generate_btn"),
+                                                 _cb(self._on_evidence), width=160)
+        self._btn_verify = th.secondary_button(tb.actions, t("ev.verify_btn"),
+                                               _cb(self._on_verify), width=140)
+        th.pack_row(self._btn_evidence, self._btn_verify)
 
         # ── Body: detail vlevo, karty vpravo ─────────────────────────────────
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.grid(row=1, column=0, sticky="nsew")
         body.grid_columnconfigure(0, weight=3, minsize=380)
-        body.grid_columnconfigure(1, weight=2)
+        body.grid_columnconfigure(1, weight=2, minsize=340)
         body.grid_rowconfigure(0, weight=1)
 
         self._build_detail(body)
@@ -187,55 +147,42 @@ class ResultsPanel(ctk.CTkFrame):
 
     def _build_detail(self, parent):
         """Levý panel – inline náhled výsledku."""
-        self._detail_card = ctk.CTkFrame(parent, fg_color=BG_CARD, corner_radius=12)
-        self._detail_card.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        self._detail_card = ctk.CTkFrame(parent, fg_color=BG_CARD, corner_radius=th.RADIUS_CARD)
+        self._detail_card.grid(row=0, column=0, sticky="nsew", padx=(0, th.GAP))
         self._detail_card.grid_propagate(False)
         self._detail_card.grid_columnconfigure(0, weight=1)
         self._detail_card.grid_rowconfigure(2, weight=1)
 
         # Header řádek (název, count, hledání, open JSON)
         hdr = ctk.CTkFrame(self._detail_card, fg_color="transparent")
-        hdr.grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
+        hdr.grid(row=0, column=0, sticky="ew", padx=th.PAD, pady=(th.PAD - 4, 8))
         hdr.grid_columnconfigure(1, weight=1)
 
-        self._detail_title = ctk.CTkLabel(
-            hdr, text=t("res.no_extraction_yet"),
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=ACCENT, anchor="w",
-        )
+        self._detail_title = th.section_label(hdr, t("res.preview"))
         self._detail_title.grid(row=0, column=0, sticky="w")
 
-        self._detail_count = ctk.CTkLabel(
-            hdr, text="",
-            font=ctk.CTkFont(size=11), text_color=TEXT_MUTED,
-        )
+        self._detail_count = ctk.CTkLabel(hdr, text="", font=th.f_small(),
+                                          text_color=TEXT_MUTED)
         self._detail_count.grid(row=0, column=1, sticky="w", padx=(12, 0))
 
-        right_hdr = ctk.CTkFrame(hdr, fg_color="transparent")
+        right_hdr = ctk.CTkFrame(hdr, fg_color="transparent", width=1, height=1)
         right_hdr.grid(row=0, column=2, sticky="e")
+        self._right_hdr = right_hdr
 
         self._search_var = ctk.StringVar()
         self._search_entry = ctk.CTkEntry(
             right_hdr, textvariable=self._search_var,
             placeholder_text=t("res.search"),
-            width=160, height=28,
+            width=180, height=th.BTN_H_SMALL, font=th.f_body(),
         )
         self._search_entry.pack(side="left", padx=(0, 6))
         self._search_var.trace_add("write", lambda *_: self._filter())
 
-        self._btn_json = ctk.CTkButton(
-            right_hdr, text=t("res.open_json"),
-            width=90, height=28,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            font=ctk.CTkFont(size=11),
-            state="disabled",
-            command=self._open_json,
-        )
+        self._btn_json = th.small_button(right_hdr, t("res.open_json"), self._open_json,
+                                         width=100, state="disabled")
         self._btn_json.pack(side="left")
 
-        ctk.CTkFrame(self._detail_card, height=1, fg_color="#2a2a3e").grid(
-            row=1, column=0, sticky="ew", padx=14,
-        )
+        th.separator(self._detail_card).grid(row=1, column=0, sticky="ew", padx=th.PAD)
 
         # Tělo – sem se dynamicky renderuje obsah
         self._detail_body = ctk.CTkFrame(
@@ -252,16 +199,19 @@ class ResultsPanel(ctk.CTkFrame):
         right = ctk.CTkFrame(parent, fg_color="transparent")
         right.grid(row=0, column=1, sticky="nsew")
         right.grid_columnconfigure(0, weight=1)
-        right.grid_rowconfigure(0, weight=1)
+        right.grid_rowconfigure(1, weight=1)
+
+        self._cards_title = th.section_label(right, t("ui.modules"))
+        self._cards_title.grid(row=0, column=0, sticky="w", padx=(4, 0), pady=(4, 10))
 
         self._cards_scroll = ctk.CTkScrollableFrame(right, fg_color="transparent")
-        self._cards_scroll.grid(row=0, column=0, sticky="nsew")
+        self._cards_scroll.grid(row=1, column=0, sticky="nsew")
         self._cards_scroll.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(
             self._cards_scroll,
             text=t("res.no_extraction_yet"),
-            text_color=TEXT_MUTED, font=ctk.CTkFont(size=12),
+            text_color=TEXT_MUTED, font=th.f_body(),
         ).grid(row=0, column=0, pady=40)
 
     # ── Aktualizace výsledků ──────────────────────────────────────────────────
@@ -299,25 +249,28 @@ class ResultsPanel(ctk.CTkFrame):
 
     def _build_card(self, result, row: int):
         is_ok = result.success and result.data is not None
-        icon = MODULE_ICONS.get(result.module, "📁")
 
         card = ctk.CTkFrame(
             self._cards_scroll,
-            fg_color=BG_CARD, corner_radius=10,
+            fg_color=BG_CARD, corner_radius=th.RADIUS_ITEM,
             cursor="hand2" if is_ok else "",
         )
-        card.grid(row=row, column=0, sticky="ew", padx=5, pady=5)
+        card.grid(row=row, column=0, sticky="ew", padx=4, pady=3)
         card.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(
-            card, text=icon,
-            font=ctk.CTkFont(size=24), width=45,
-        ).grid(row=0, column=0, rowspan=2, padx=(15, 5), pady=15)
+        # Značková PNG ikona (stejná jako v ostatních modulech), s emoji fallbackem
+        img = module_icon(result.module, size=30)
+        if img is not None:
+            icon_lbl = ctk.CTkLabel(card, text="", image=img, width=36)
+        else:
+            icon_lbl = ctk.CTkLabel(card, text=MODULE_ICONS.get(result.module, "📁"),
+                                    font=ctk.CTkFont(size=20), width=36)
+        icon_lbl.grid(row=0, column=0, rowspan=2, padx=(12, 8), pady=10)
 
         ctk.CTkLabel(
             card, text=result.label,
-            font=ctk.CTkFont(size=13, weight="bold"), anchor="w",
-        ).grid(row=0, column=1, sticky="w", pady=(12, 1), padx=(0, 8))
+            font=th.f_bold(), anchor="w",
+        ).grid(row=0, column=1, sticky="w", pady=(10, 1), padx=(0, 8))
 
         if is_ok:
             info = f"{result.count} {t('res.records')}"
@@ -330,14 +283,14 @@ class ResultsPanel(ctk.CTkFrame):
             card, text=info,
             font=ctk.CTkFont(size=11), text_color=info_color,
             anchor="w", wraplength=220,
-        ).grid(row=1, column=1, sticky="w", pady=(0, 12), padx=(0, 8))
+        ).grid(row=1, column=1, sticky="w", pady=(0, 10), padx=(0, 8))
 
         # Status dot vpravo
         ctk.CTkLabel(
             card, text="●",
             font=ctk.CTkFont(size=10),
             text_color=GREEN if is_ok else RED, width=20,
-        ).grid(row=0, column=2, padx=(0, 15), pady=(12, 0), sticky="ne")
+        ).grid(row=0, column=2, padx=(0, 14), pady=(10, 0), sticky="ne")
 
         if is_ok:
             def _click(r=result, c=card):
@@ -363,6 +316,7 @@ class ResultsPanel(ctk.CTkFrame):
 
         # Hlavička
         self._detail_title.configure(text=result.label)
+        self._right_hdr.grid()
         if result.success:
             self._detail_count.configure(
                 text=f"{result.count} {t('res.records')}", text_color=TEXT_MUTED
@@ -593,8 +547,9 @@ class ResultsPanel(ctk.CTkFrame):
             ).grid(row=0, column=0, pady=60)
         self._search_entry.configure(state="disabled")
         self._btn_json.configure(state="disabled")
-        self._detail_title.configure(text=t("res.no_extraction_yet"))
+        self._detail_title.configure(text=t("res.preview"))
         self._detail_count.configure(text="")
+        self._right_hdr.grid_remove()
 
     def _render_kv(self, data: dict):
         scroll = ctk.CTkScrollableFrame(self._detail_body, fg_color="transparent")
@@ -722,13 +677,12 @@ class ResultsPanel(ctk.CTkFrame):
 
     def refresh_lang(self):
         self._btn_open.configure(text=t("topbar.open_output"))
-        self._btn_html.configure(text=t("topbar.html_report"))
-        self._btn_pdf.configure(text=t("topbar.pdf_report"))
-        self._btn_excel.configure(text=t("topbar.excel_report"))
+        self._report_lbl.configure(text=t("res.reports"))
         self._btn_evidence.configure(text=t("ev.generate_btn"))
         self._btn_verify.configure(text=t("ev.verify_btn"))
         self._search_entry.configure(placeholder_text=t("res.search"))
         self._btn_json.configure(text=t("res.open_json"))
+        self._cards_title.configure(text=t("ui.modules"))
 
 
 class _RowDetailDialog(ctk.CTkToplevel):

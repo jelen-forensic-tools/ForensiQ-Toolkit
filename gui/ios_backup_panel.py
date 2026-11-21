@@ -13,6 +13,7 @@ from typing import Optional
 import customtkinter as ctk
 from core.i18n import t
 from .iconset import module_icon
+from . import theme as th
 from core.ios_backup_parser import (
     iOSBackupParser,
     IOS_BACKUP_MODULES,
@@ -64,6 +65,9 @@ class iOSBackupPanel(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
         self._build()
+        # Po otevření panelu rovnou vyhledej zálohy iTunes (jinak by výběr
+        # ukazoval „Hledám…“, dokud uživatel neklikne na ↻)
+        self.after(300, self._scan_backups)
 
     # ── UI construction ────────────────────────────────────────────────────
 
@@ -74,195 +78,67 @@ class iOSBackupPanel(ctk.CTkFrame):
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.grid(row=1, column=0, sticky="nsew")
         body.grid_columnconfigure(0, weight=3, minsize=380)
-        body.grid_columnconfigure(1, weight=2)
+        body.grid_columnconfigure(1, weight=2, minsize=340)
         body.grid_rowconfigure(0, weight=1)
 
         self._build_log(body)
         self._build_config(body)
 
     def _build_topbar(self):
-        top = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=12)
-        top.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        top.grid_columnconfigure(0, weight=1)
+        tb = th.Toolbar(self)
+        tb.grid(row=0, column=0, sticky="ew", pady=(0, th.GAP))
 
-        # ── Řádek 0 – nalezené zálohy + ovládací tlačítka ──
-        row0 = ctk.CTkFrame(top, fg_color="transparent")
-        row0.grid(row=0, column=0, padx=16, pady=(12, 4), sticky="ew")
-        row0.grid_columnconfigure(1, weight=1)
-
-        ctk.CTkLabel(
-            row0, text=t("ios_bkp.found_label"),
-            font=ctk.CTkFont(size=11, weight="bold"),
-            text_color=TEXT_MUTED,
-        ).grid(row=0, column=0, padx=(0, 8))
-
+        # Zdroj: nalezené zálohy / ruční výběr / výstup
+        th.field_label(tb.source, t("ios_bkp.found_label")).pack(side="left", padx=(0, 8))
         self._found_var = ctk.StringVar(value=t("ios_bkp.searching"))
         self._found_combo = ctk.CTkComboBox(
-            row0, variable=self._found_var,
-            values=[t("ios_bkp.searching")],
-            state="readonly",
-            command=self._on_found_selected,
+            tb.source, variable=self._found_var,
+            values=[t("ios_bkp.searching")], height=th.BTN_H,
+            state="readonly", command=self._on_found_selected,
         )
-        self._found_combo.grid(row=0, column=1, sticky="ew", padx=(0, 8))
-
-        ctk.CTkButton(
-            row0, text="↺", width=36, height=30,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            command=self._scan_backups,
-        ).grid(row=0, column=2, padx=(0, 6))
-
-        ctk.CTkButton(
-            row0, text=t("ios_bkp.pick_folder"),
-            font=ctk.CTkFont(size=12),
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            height=30, width=150,
-            command=self._pick_folder,
-        ).grid(row=0, column=3, padx=(0, 6))
-
-        ctk.CTkButton(
-            row0, text="📂", width=36, height=30,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            command=self._pick_output,
-        ).grid(row=0, column=4)
-
-        # ── Řádek 1 – cesta / výstup / info zařízení + akční tlačítka ──
-        row1 = ctk.CTkFrame(top, fg_color="transparent")
-        row1.grid(row=1, column=0, padx=16, pady=(0, 12), sticky="ew")
-        row1.grid_columnconfigure(0, weight=1)
-
-        info = ctk.CTkFrame(row1, fg_color="transparent")
-        info.grid(row=0, column=0, sticky="w")
-        self._path_label = ctk.CTkLabel(
-            info, text=t("ios_bkp.no_path"),
-            font=ctk.CTkFont(size=11),
-            text_color=TEXT_MUTED, anchor="w",
+        self._found_combo.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        th.pack_row(
+            th.icon_button(tb.source, "↻", self._scan_backups),
+            th.secondary_button(tb.source, t("ios_bkp.pick_folder"), self._pick_folder,
+                                width=150),
+            th.secondary_button(tb.source, t("ui.output"), self._pick_output, width=150),
         )
-        self._path_label.pack(side="left")
-        self._output_label = ctk.CTkLabel(
-            info, text="",
-            font=ctk.CTkFont(size=11),
-            text_color=TEXT_MUTED, anchor="w",
-        )
-        self._output_label.pack(side="left", padx=(12, 0))
-        self._device_info_lbl = ctk.CTkLabel(
-            info, text="",
-            font=ctk.CTkFont(size=11),
-            text_color=ACCENT,
-        )
+        # Heslo šifrované zálohy (zobrazí se jen u šifrované zálohy)
+        self._pw_label = th.field_label(tb.source, t("ios_bkp.password"))
+        self._password_entry = ctk.CTkEntry(tb.source, show="•", width=150,
+                                            height=th.BTN_H, font=th.f_body())
+
+        # Info: cesta / výstup / zařízení / stav
+        self._output_label = ctk.CTkLabel(tb.info, text="", font=th.f_small(),
+                                          text_color=TEXT_MUTED, anchor="w")
+        self._output_label.pack(side="left")
+        self._path_label = ctk.CTkLabel(tb.info, text=t("ios_bkp.no_path"), font=th.f_small(),
+                                        text_color=TEXT_MUTED, anchor="w")
+        self._path_label.pack(side="left", padx=(12, 0))
+        self._device_info_lbl = ctk.CTkLabel(tb.info, text="", font=th.f_small(),
+                                             text_color=ACCENT, anchor="w")
         self._device_info_lbl.pack(side="left", padx=(12, 0))
+        self._status_bar = ctk.CTkLabel(tb.info, text="", font=th.f_body(),
+                                        text_color=TEXT_MUTED, anchor="w")
+        self._status_bar.pack(side="left", padx=(16, 0))
 
-        actions = ctk.CTkFrame(row1, fg_color="transparent")
-        actions.grid(row=0, column=1, sticky="e")
-        self._status_bar = ctk.CTkLabel(
-            actions, text="", font=ctk.CTkFont(size=11),
-            text_color=TEXT_MUTED, anchor="e", width=140,
-        )
-        self._status_bar.pack(side="left", padx=(0, 12))
-        self._btn_run = ctk.CTkButton(
-            actions, text=t("ios_bkp.run"),
-            font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color="#1D6F42", hover_color="#145230",
-            text_color="#fff", width=150, height=36,
-            command=self._run,
-        )
-        self._btn_run.pack(side="left", padx=(0, 4))
-        self._btn_stop = ctk.CTkButton(
-            actions, text=t("ext.stop"),
-            font=ctk.CTkFont(size=13),
-            fg_color="#f44336", hover_color="#c62828",
-            text_color="#fff", width=100, height=36,
-            state="disabled", command=self._stop,
-        )
-        self._btn_stop.pack(side="left")
+        self._btn_run = th.primary_button(tb.actions, t("ios_bkp.run"), self._run)
+        self._btn_stop = th.danger_button(tb.actions, t("ext.stop"), self._stop,
+                                          state="disabled")
+        th.pack_row(self._btn_run, self._btn_stop)
 
     def _build_log(self, parent):
-        log_card = ctk.CTkFrame(parent, fg_color=BG_CARD, corner_radius=12)
-        log_card.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-        log_card.grid_columnconfigure(0, weight=1)
-        log_card.grid_rowconfigure(2, weight=1)
-
-        hdr = ctk.CTkFrame(log_card, fg_color="transparent")
-        hdr.grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
-
-        ctk.CTkLabel(
-            hdr, text=t("bkp.log_title"),
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=self.accent,
-        ).pack(side="left")
-
-        ctk.CTkFrame(log_card, height=1, fg_color="#2a2a3e").grid(
-            row=1, column=0, sticky="ew", padx=14,
-        )
-
-        self._log_box = ctk.CTkTextbox(
-            log_card,
-            font=ctk.CTkFont(family="Consolas", size=11),
-            fg_color=BG_LOG, text_color="#cccccc",
-            wrap="word", state="disabled", corner_radius=8,
-        )
-        self._log_box.grid(row=2, column=0, sticky="nsew", padx=10, pady=(6, 10))
-        self._log_box.tag_config("ok",    foreground=GREEN)
-        self._log_box.tag_config("err",   foreground=RED)
-        self._log_box.tag_config("info",  foreground=self.accent)
-        self._log_box.tag_config("warn",  foreground=ORANGE)
-        self._log_box.tag_config("muted", foreground=TEXT_MUTED)
-        self._log_box.tag_config("sep",   foreground="#2a3a5a")
+        self._log_card = th.LogCard(parent, t("ui.log"))
+        self._log_card.grid(row=0, column=0, sticky="nsew", padx=(0, th.GAP))
+        self._log_box = self._log_card.box
 
     def _build_config(self, parent):
-        right = ctk.CTkScrollableFrame(parent, fg_color="transparent")
-        right.grid(row=0, column=1, sticky="nsew")
-        right.grid_columnconfigure(0, weight=1)
-
-        for i, (key, label) in enumerate(IOS_BACKUP_MODULES.items()):
-            icon = MODULE_ICONS.get(key, "📁")
-            card = ctk.CTkFrame(right, fg_color=BG_CARD, corner_radius=10)
-            card.grid(row=i + 1, column=0, sticky="ew", padx=5, pady=4)
-            card.grid_columnconfigure(1, weight=1)
-
-            _img = module_icon(key, size=30)
-            if _img is not None:
-                ctk.CTkLabel(card, text="", image=_img, width=36).grid(
-                    row=0, column=0, padx=(12, 4), pady=8)
-            else:
-                ctk.CTkLabel(
-                    card, text=icon, font=ctk.CTkFont(size=20), width=36,
-                ).grid(row=0, column=0, padx=(12, 4), pady=10)
-
-            ctk.CTkLabel(
-                card, text=t(f"ios_bkp.mod.{key}"),
-                font=ctk.CTkFont(size=12, weight="bold"), anchor="w",
-            ).grid(row=0, column=1, sticky="w", padx=4)
-
-            ctk.CTkCheckBox(
-                card, text="",
-                variable=self._module_vars[key],
-                checkbox_width=20, checkbox_height=20,
-                fg_color=self.accent, checkmark_color="#000",
-            ).grid(row=0, column=2, padx=12)
-
-        sel_row_idx = len(IOS_BACKUP_MODULES) + 1
-        ctk.CTkFrame(right, height=1, fg_color="#2a2a3e").grid(
-            row=sel_row_idx, column=0, sticky="ew", padx=8, pady=(10, 6)
-        )
-        sel = ctk.CTkFrame(right, fg_color="transparent")
-        sel.grid(row=sel_row_idx + 1, column=0, padx=8, pady=(0, 12), sticky="ew")
-        sel.grid_columnconfigure((0, 1), weight=1)
-        ctk.CTkButton(
-            sel, text=t("ext.select_all"),
-            font=ctk.CTkFont(size=10),
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            height=26,
-            command=lambda: [v.set(True) for v in self._module_vars.values()],
-        ).grid(row=0, column=0, padx=(0, 3), sticky="ew")
-        ctk.CTkButton(
-            sel, text=t("ext.deselect_all"),
-            font=ctk.CTkFont(size=10),
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            height=26,
-            command=lambda: [v.set(False) for v in self._module_vars.values()],
-        ).grid(row=0, column=1, padx=(3, 0), sticky="ew")
-
-    # ── Backup discovery ───────────────────────────────────────────────────
+        self._modules = th.ModuleList(parent, t("ui.modules"), t("ui.all"), t("ui.none"))
+        self._modules.grid(row=0, column=1, sticky="nsew")
+        for key in IOS_BACKUP_MODULES:
+            self._modules.add(key, t(f"ios_bkp.mod.{key}"), self._module_vars[key],
+                              image=module_icon(key, size=30),
+                              emoji=MODULE_ICONS.get(key, "📁"))
 
     def _scan_backups(self):
         self._found_combo.configure(values=[t("ios_bkp.searching")])
@@ -294,16 +170,32 @@ class iOSBackupPanel(ctk.CTkFrame):
             short = b["udid"][:8]
             if short in selection:
                 self._set_backup_path(b["path"])
+                pc = b.get("was_passcode_set")
+                pc_txt = ""
+                if pc is True:
+                    pc_txt = f"  |  🔑 {t('ios_bkp.passcode_set')}"
+                elif pc is False:
+                    pc_txt = f"  |  {t('ios_bkp.passcode_unset')}"
                 if b.get("encrypted"):
                     self._device_info_lbl.configure(
-                        text=f"🔒 {t('ios_bkp.encrypted')}", text_color=ORANGE
+                        text=f"🔒 {t('ios_bkp.encrypted')}{pc_txt}", text_color=ORANGE
                     )
+                    self._show_password(True)
                 else:
                     self._device_info_lbl.configure(
-                        text=f"iOS {b['ios_version']}  |  {b['device_name']}",
+                        text=f"iOS {b['ios_version']}  |  {b['device_name']}{pc_txt}",
                         text_color=ACCENT,
                     )
+                    self._show_password(False)
                 break
+
+    def _show_password(self, show: bool):
+        if show:
+            self._pw_label.pack(side="left", padx=(12, 6))
+            self._password_entry.pack(side="left")
+        else:
+            self._pw_label.pack_forget()
+            self._password_entry.pack_forget()
 
     # ── File pickers ───────────────────────────────────────────────────────
 
@@ -324,6 +216,16 @@ class iOSBackupPanel(ctk.CTkFrame):
         if len(label) > 60:
             label = "…" + label[-57:]
         self._path_label.configure(text=label, text_color=WHITE)
+
+        # Zjisti, zda je vybraná složka šifrovaná záloha → zobraz pole na heslo
+        try:
+            enc = iOSBackupParser(path, "").is_encrypted()
+        except Exception:
+            enc = False
+        self._show_password(enc)
+        if enc:
+            self._device_info_lbl.configure(text=f"🔒 {t('ios_bkp.encrypted')}",
+                                            text_color=ORANGE)
 
         # Suggest output directory
         if not self._output_dir:
@@ -357,7 +259,8 @@ class iOSBackupPanel(ctk.CTkFrame):
         self._status_bar.configure(text=t("ext.running"), text_color=self.accent)
         self._log_clear()
 
-        self._parser = iOSBackupParser(self._backup_path, self._output_dir)
+        pw = self._password_entry.get() if self._password_entry.winfo_ismapped() else ""
+        self._parser = iOSBackupParser(self._backup_path, self._output_dir, password=pw)
         device_info = self._parser.get_device_info()
         device_lbl = device_info.get("device_name") or device_info.get("model", "iOS")
 

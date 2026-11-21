@@ -13,6 +13,7 @@ import customtkinter as ctk
 
 from core.i18n import t
 from .iconset import module_icon
+from . import theme as th
 from core.ios_ramdisk import iOSRamdiskAcquirer, IOS_RAMDISK_MODULES, paramiko_available
 
 ACCENT     = "#00d4ff"
@@ -58,109 +59,38 @@ class iOSRamdiskPanel(ctk.CTkFrame):
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.grid(row=1, column=0, sticky="nsew")
         body.grid_columnconfigure(0, weight=3, minsize=380)
-        body.grid_columnconfigure(1, weight=2)
+        body.grid_columnconfigure(1, weight=2, minsize=340)
         body.grid_rowconfigure(0, weight=1)
         self._build_log(body)
         self._build_config(body)
 
     def _build_topbar(self):
-        top = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=12)
-        top.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        top.grid_columnconfigure(0, weight=1)
+        tb = th.Toolbar(self)
+        tb.grid(row=0, column=0, sticky="ew", pady=(0, th.GAP))
 
-        # ── Řádek 0 – připojení ──
-        row0 = ctk.CTkFrame(top, fg_color="transparent")
-        row0.grid(row=0, column=0, padx=16, pady=(12, 4), sticky="ew")
-
-        def _field(label_key, default, width):
-            ctk.CTkLabel(row0, text=t(label_key),
-                         font=ctk.CTkFont(size=11, weight="bold"),
-                         text_color=TEXT_MUTED).pack(side="left", padx=(0, 4))
-            var = ctk.StringVar(value=default)
-            e = ctk.CTkEntry(row0, textvariable=var, width=width, height=28,
-                             font=ctk.CTkFont(size=11))
-            e.pack(side="left", padx=(0, 12))
-            return var
-
-        self._host_var = _field("rd.host", "localhost", 110)
-        self._port_var = _field("rd.port", "2222", 60)
-        self._user_var = _field("rd.user", "root", 70)
-        self._pass_var = _field("rd.pass", "alpine", 90)
-        self._root_var = _field("rd.data_root", "/mnt2", 80)
-
-        self._test_btn = ctk.CTkButton(
-            row0, text=t("rd.test"), width=90, height=28,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            font=ctk.CTkFont(size=11), command=self._test_connection,
-        )
-        self._test_btn.pack(side="left")
-
-        # ── Řádek 1 – výstup + akce ──
-        row1 = ctk.CTkFrame(top, fg_color="transparent")
-        row1.grid(row=1, column=0, padx=16, pady=(0, 12), sticky="ew")
-        row1.grid_columnconfigure(0, weight=1)
-
-        info = ctk.CTkFrame(row1, fg_color="transparent")
-        info.grid(row=0, column=0, sticky="w")
-        ctk.CTkButton(
-            info, text=t("rd.pick_output"), width=120, height=28,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            font=ctk.CTkFont(size=11), command=self._pick_output,
-        ).pack(side="left", padx=(0, 10))
-        self._output_label = ctk.CTkLabel(
-            info, text=t("bkp.no_output"),
-            font=ctk.CTkFont(size=11), text_color=TEXT_MUTED, anchor="w",
-        )
+        # Zdroj: výběr výstupní složky + stav (SSH parametry jsou v pravém panelu)
+        th.secondary_button(tb.source, t("ui.output"), self._pick_output,
+                            width=150).pack(side="left", padx=(0, 10))
+        self._output_label = ctk.CTkLabel(tb.source, text=t("bkp.no_output"), font=th.f_small(),
+                                          text_color=TEXT_MUTED, anchor="w")
         self._output_label.pack(side="left")
 
-        actions = ctk.CTkFrame(row1, fg_color="transparent")
-        actions.grid(row=0, column=1, sticky="e")
-        self._status_bar = ctk.CTkLabel(
-            actions, text="", font=ctk.CTkFont(size=11),
-            text_color=TEXT_MUTED, anchor="e", width=150,
-        )
-        self._status_bar.pack(side="left", padx=(0, 12))
-        self._btn_run = ctk.CTkButton(
-            actions, text=t("rd.run"),
-            font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color="#1D6F42", hover_color="#145230",
-            text_color="#fff", width=150, height=36, command=self._run,
-        )
-        self._btn_run.pack(side="left", padx=(0, 4))
-        self._btn_stop = ctk.CTkButton(
-            actions, text=t("ext.stop"),
-            font=ctk.CTkFont(size=13),
-            fg_color="#f44336", hover_color="#c62828",
-            text_color="#fff", width=100, height=36,
-            state="disabled", command=self._stop,
-        )
-        self._btn_stop.pack(side="left")
+        self._status_bar = ctk.CTkLabel(tb.info, text="", font=th.f_body(),
+                                        text_color=TEXT_MUTED, anchor="e")
+        self._status_bar.pack(side="left")
+
+        # Akce: Test spojení, Stáhnout, Zastavit
+        self._test_btn = th.secondary_button(tb.actions, t("rd.test"), self._test_connection,
+                                             width=120)
+        self._btn_run = th.primary_button(tb.actions, t("rd.run"), self._run, width=150)
+        self._btn_stop = th.danger_button(tb.actions, t("ext.stop"), self._stop,
+                                          state="disabled")
+        th.pack_row(self._test_btn, self._btn_run, self._btn_stop)
 
     def _build_log(self, parent):
-        log_card = ctk.CTkFrame(parent, fg_color=BG_CARD, corner_radius=12)
-        log_card.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-        log_card.grid_columnconfigure(0, weight=1)
-        log_card.grid_rowconfigure(2, weight=1)
-
-        hdr = ctk.CTkFrame(log_card, fg_color="transparent")
-        hdr.grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
-        ctk.CTkLabel(hdr, text=t("rd.log_title"),
-                     font=ctk.CTkFont(size=12, weight="bold"),
-                     text_color=self.accent).pack(side="left")
-        ctk.CTkFrame(log_card, height=1, fg_color="#2a2a3e").grid(
-            row=1, column=0, sticky="ew", padx=14)
-
-        self._log_box = ctk.CTkTextbox(
-            log_card, fg_color=BG_LOG, text_color="#cccccc",
-            font=ctk.CTkFont(family="Consolas", size=11),
-            corner_radius=8, state="disabled", wrap="word",
-        )
-        self._log_box.grid(row=2, column=0, sticky="nsew", padx=10, pady=(6, 10))
-        self._log_box.tag_config("ok",    foreground=GREEN)
-        self._log_box.tag_config("err",   foreground=RED)
-        self._log_box.tag_config("info",  foreground=self.accent)
-        self._log_box.tag_config("muted", foreground=TEXT_MUTED)
-        self._log_box.tag_config("sep",   foreground="#2a3a5a")
+        self._log_card = th.LogCard(parent, t("ui.log"))
+        self._log_card.grid(row=0, column=0, sticky="nsew", padx=(0, th.GAP))
+        self._log_box = self._log_card.box
 
         if not paramiko_available():
             self._log(t("rd.no_paramiko"), "err")
@@ -168,44 +98,37 @@ class iOSRamdiskPanel(ctk.CTkFrame):
             self._log(t("rd.hint"), "muted")
 
     def _build_config(self, parent):
-        right = ctk.CTkScrollableFrame(parent, fg_color="transparent")
-        right.grid(row=0, column=1, sticky="nsew")
-        right.grid_columnconfigure(0, weight=1)
+        self._modules = th.ModuleList(parent)
+        self._modules.grid(row=0, column=1, sticky="nsew")
+        right = self._modules.scroll
 
-        for i, (key, _) in enumerate(IOS_RAMDISK_MODULES.items()):
-            icon = MODULE_ICONS.get(key, "📁")
-            card = ctk.CTkFrame(right, fg_color=BG_CARD, corner_radius=10)
-            card.grid(row=i, column=0, sticky="ew", padx=5, pady=4)
-            card.grid_columnconfigure(1, weight=1)
-            _img = module_icon(key, size=30)
-            if _img is not None:
-                ctk.CTkLabel(card, text="", image=_img, width=36).grid(
-                    row=0, column=0, padx=(12, 4), pady=8)
-            else:
-                ctk.CTkLabel(card, text=icon, font=ctk.CTkFont(size=20), width=36).grid(
-                    row=0, column=0, padx=(12, 4), pady=10)
-            ctk.CTkLabel(card, text=t(f"rd.mod.{key}"),
-                         font=ctk.CTkFont(size=12, weight="bold"), anchor="w").grid(
-                row=0, column=1, sticky="w", padx=4)
-            ctk.CTkCheckBox(card, text="", variable=self._module_vars[key],
-                            checkbox_width=20, checkbox_height=20,
-                            fg_color=self.accent, checkmark_color="#000").grid(
-                row=0, column=2, padx=12)
+        # SSH připojení – kompaktní karta nad moduly
+        self._modules.add_section(t("rd.conn_section"))
+        conn = ctk.CTkFrame(right, fg_color=BG_CARD, corner_radius=th.RADIUS_ITEM)
+        conn.grid(row=self._modules.next_row(), column=0, sticky="ew", padx=4, pady=3)
+        conn.grid_columnconfigure(1, weight=1)
+        conn.grid_columnconfigure(3, weight=1)
 
-        sel_idx = len(IOS_RAMDISK_MODULES)
-        ctk.CTkFrame(right, height=1, fg_color="#2a2a3e").grid(
-            row=sel_idx, column=0, sticky="ew", padx=8, pady=(10, 6))
-        sel = ctk.CTkFrame(right, fg_color="transparent")
-        sel.grid(row=sel_idx + 1, column=0, padx=8, pady=(0, 12), sticky="ew")
-        sel.grid_columnconfigure((0, 1), weight=1)
-        ctk.CTkButton(sel, text=t("ext.select_all"), font=ctk.CTkFont(size=10),
-                      fg_color="#2a2a4a", hover_color="#3a3a5a", height=26,
-                      command=lambda: [v.set(True) for v in self._module_vars.values()]).grid(
-            row=0, column=0, padx=(0, 3), sticky="ew")
-        ctk.CTkButton(sel, text=t("ext.deselect_all"), font=ctk.CTkFont(size=10),
-                      fg_color="#2a2a4a", hover_color="#3a3a5a", height=26,
-                      command=lambda: [v.set(False) for v in self._module_vars.values()]).grid(
-            row=0, column=1, padx=(3, 0), sticky="ew")
+        def _field(r, c, label_key, default, span=1):
+            th.field_label(conn, t(label_key)).grid(row=r, column=c * 2, sticky="w",
+                                                    padx=(12, 6), pady=6)
+            var = ctk.StringVar(value=default)
+            ctk.CTkEntry(conn, textvariable=var, height=th.BTN_H, font=th.f_body()).grid(
+                row=r, column=c * 2 + 1, columnspan=span, sticky="ew", padx=(0, 12), pady=6)
+            return var
+
+        self._host_var = _field(0, 0, "rd.host", "localhost")
+        self._port_var = _field(0, 1, "rd.port", "2222")
+        self._user_var = _field(1, 0, "rd.user", "root")
+        self._pass_var = _field(1, 1, "rd.pass", "alpine")
+        self._root_var = _field(2, 0, "rd.data_root", "/mnt2", span=3)
+
+        # Moduly k extrakci
+        self._modules.add_section(t("ui.modules"), all_text=t("ui.all"), none_text=t("ui.none"))
+        for key in IOS_RAMDISK_MODULES:
+            self._modules.add(key, t(f"rd.mod.{key}"), self._module_vars[key],
+                              image=module_icon(key, size=30),
+                              emoji=MODULE_ICONS.get(key, "📁"))
 
     # ── Akce ──────────────────────────────────────────────────────────────
     def _make_acq(self) -> iOSRamdiskAcquirer:

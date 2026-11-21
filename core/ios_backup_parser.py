@@ -1,5 +1,5 @@
 """
-core/ios_backup_parser.py — Parses iTunes/Finder iOS backups (unencrypted).
+core/ios_backup_parser.py — Parses iTunes/Finder iOS backups (unencrypted and encrypted).
 
 Backup folder structure:
   <root>/<UDID>/
@@ -65,7 +65,8 @@ def find_itunes_backups() -> list[dict]:
             entry: dict = {"path": path, "udid": udid,
                            "device_name": udid, "product": "",
                            "ios_version": "", "last_backup": "",
-                           "serial": "", "encrypted": False}
+                           "serial": "", "encrypted": False,
+                           "was_passcode_set": None}
             # Info.plist – device info
             info_plist = os.path.join(path, "Info.plist")
             if os.path.isfile(info_plist):
@@ -88,6 +89,12 @@ def find_itunes_backups() -> list[dict]:
                     with open(manifest_plist, "rb") as f:
                         mf = plistlib.load(f)
                     entry["encrypted"] = bool(mf.get("IsEncrypted", False))
+                    if "WasPasscodeSet" in mf:
+                        entry["was_passcode_set"] = bool(mf.get("WasPasscodeSet"))
+                    else:
+                        ld = mf.get("Lockdown") or {}
+                        if isinstance(ld, dict) and "PasswordProtected" in ld:
+                            entry["was_passcode_set"] = bool(ld.get("PasswordProtected"))
                 except Exception:
                     pass
             backups.append(entry)
@@ -113,14 +120,23 @@ class iOSBackupResult:
 
 # ── Parser ─────────────────────────────────────────────────────────────────
 
-class iOSBackupParser:
-    """Parses an unencrypted iOS iTunes/Finder backup."""
+class _WrongPassword(Exception):
+    pass
 
-    def __init__(self, backup_path: str, output_dir: str):
+
+class iOSBackupParser:
+    """Parses iTunes/Finder iOS backups. Šifrované zálohy dešifruje heslem
+    zálohy (core.ios_backup_crypto)."""
+
+    def __init__(self, backup_path: str, output_dir: str, password: str = ""):
         self.backup_path = backup_path
         self.output_dir = output_dir
+        self.password = password or ""
         self._stop_event = threading.Event()
         self._on_log: Optional[Callable] = None
+        self._crypto = None          # EncryptedBackup instance pro šifrované zálohy
+        self._dec_dir: Optional[str] = None   # temp složka s dešifrovanými soubory
+        self._dec_cache: dict = {}   # fileID → cesta k dešifrovanému souboru
 
     def stop(self):
         self._stop_event.set()
@@ -141,7 +157,7 @@ class iOSBackupParser:
         try:
             with open(info_path, "rb") as f:
                 info = plistlib.load(f)
-            return {
+            out = {
                 "device_name":     info.get("Device Name", ""),
                 "model":           info.get("Product Type", ""),
                 "ios_version":     info.get("Product Version", ""),
@@ -152,6 +168,16 @@ class iOSBackupParser:
                 "last_backup":     str(info.get("Last Backup Date", "")),
                 "itunes_version":  info.get("iTunes Version", ""),
             }
+            # Manifest.plist → šifrování + zda mělo zařízení nastavený zámek
+            try:
+                with open(os.path.join(self.backup_path, "Manifest.plist"), "rb") as f:
+                    mf = plistlib.load(f)
+                out["encrypted"] = bool(mf.get("IsEncrypted", False))
+                if "WasPasscodeSet" in mf:
+                    out["was_passcode_set"] = bool(mf.get("WasPasscodeSet"))
+            except Exception:
+                pass
+            return out
         except Exception as e:
             return {"error": str(e)}
 
@@ -183,9 +209,20 @@ class iOSBackupParser:
             if not os.path.isfile(manifest_db):
                 on_done([], t("iosx.no_manifest"))
                 return
+
+            # Šifrovaná záloha → dešifruj Manifest.db heslem zálohy
             if self.is_encrypted():
-                on_done([], t("iosx.encrypted"))
-                return
+                if not self.password:
+                    on_done([], t("iosx.need_password"))
+                    return
+                try:
+                    manifest_db = self._init_decryption(manifest_db)
+                except _WrongPassword:
+                    on_done([], t("iosx.wrong_password"))
+                    return
+                except Exception as e:
+                    on_done([], t("iosx.decrypt_fail").format(e=e))
+                    return
 
             results: list[iOSBackupResult] = []
             total = len(modules)
@@ -207,9 +244,67 @@ class iOSBackupParser:
                 if on_module_done:
                     on_module_done(result, i, total, elapsed, avg)
 
+            self._cleanup_decryption()
             on_done(results, "")
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    # ── Dešifrování šifrované zálohy ─────────────────────────────────────────
+
+    def _init_decryption(self, manifest_db: str) -> str:
+        """Odemkne keybag heslem, dešifruje Manifest.db do temp a vrátí jeho cestu."""
+        from .ios_backup_crypto import EncryptedBackup
+        self._crypto = EncryptedBackup(self.backup_path, self.password)
+        if not self._crypto.password_ok:
+            raise _WrongPassword()
+        with open(manifest_db, "rb") as f:
+            enc = f.read()
+        dec = self._crypto.decrypt_manifest_db(enc)
+        self._dec_dir = tempfile.mkdtemp(prefix="forenziq_ios_")
+        out = os.path.join(self._dec_dir, "Manifest.db")
+        with open(out, "wb") as f:
+            f.write(dec)
+        self._log(t("iosx.decrypt_ok"))
+        return out
+
+    def _cleanup_decryption(self):
+        if self._dec_dir and os.path.isdir(self._dec_dir):
+            try:
+                shutil.rmtree(self._dec_dir, ignore_errors=True)
+            except Exception:
+                pass
+        self._dec_dir = None
+        self._dec_cache = {}
+
+    def _fid_to_path(self, manifest_db: str, fid: str) -> Optional[str]:
+        """Lokální cesta k souboru podle fileID. U šifrované zálohy ho nejdřív
+        dešifruje do temp a vrátí dešifrovanou kopii."""
+        if not fid:
+            return None
+        if self._crypto is None:
+            path = os.path.join(self.backup_path, fid[:2], fid)
+            return path if os.path.isfile(path) else None
+        if fid in self._dec_cache:
+            return self._dec_cache[fid]
+        enc_path = os.path.join(self.backup_path, fid[:2], fid)
+        if not os.path.isfile(enc_path):
+            return None
+        try:
+            conn = sqlite3.connect(manifest_db)
+            row = conn.execute("SELECT file FROM Files WHERE fileID=?", (fid,)).fetchone()
+            conn.close()
+            if not row or not row[0]:
+                return None
+            with open(enc_path, "rb") as f:
+                enc = f.read()
+            dec = self._crypto.decrypt_file(bytes(row[0]), enc)
+            out = os.path.join(self._dec_dir, fid)
+            with open(out, "wb") as f:
+                f.write(dec)
+            self._dec_cache[fid] = out
+            return out
+        except Exception:
+            return None
 
     # ── Module dispatcher ──────────────────────────────────────────────────
 
@@ -258,9 +353,7 @@ class iOSBackupParser:
             conn.close()
             if not row:
                 return None
-            fid = row[0]
-            path = os.path.join(self.backup_path, fid[:2], fid)
-            return path if os.path.isfile(path) else None
+            return self._fid_to_path(manifest_db, row[0])
         except Exception:
             return None
 
@@ -277,7 +370,12 @@ class iOSBackupParser:
             )
             rows = cur.fetchall()
             conn.close()
-            return [(r[0], r[1]) for r in rows]
+            out = []
+            for r in rows:
+                lp = self._fid_to_path(manifest_db, r[0])
+                if lp:
+                    out.append((lp, r[1]))
+            return out
         except Exception:
             return []
 
@@ -301,9 +399,7 @@ class iOSBackupParser:
             conn.close()
             if not row:
                 return None
-            fid = row[0]
-            path = os.path.join(self.backup_path, fid[:2], fid)
-            return path if os.path.isfile(path) else None
+            return self._fid_to_path(manifest_db, row[0])
         except Exception:
             return None
 
@@ -578,10 +674,10 @@ class iOSBackupParser:
         os.makedirs(photos_dir, exist_ok=True)
         files = self._find_files(manifest_db, "CameraRollDomain", "Media/DCIM/%")
         data: list[dict] = []
-        for file_id, rel_path in files:
+        for src_path, rel_path in files:
             if self._stopped():
                 break
-            src = os.path.join(self.backup_path, file_id[:2], file_id)
+            src = src_path
             if not os.path.isfile(src):
                 continue
             filename = os.path.basename(rel_path)

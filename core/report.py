@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import datetime
 from typing import TYPE_CHECKING
@@ -17,347 +18,475 @@ if TYPE_CHECKING:
     from .extractor import ExtractionResult
 
 
-def generate_pdf_report(results: list, device_info: dict, output_dir: str) -> str:
-    """Vygeneruje profesionální PDF report z výsledků extrakce."""
+def _report_asset(*parts) -> str:
+    """Absolutní cesta k souboru v assets/ (funguje ze zdrojáků i z .exe)."""
+    import sys
+    if getattr(sys, "frozen", False):
+        base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    else:
+        base = os.path.dirname(os.path.dirname(__file__))
+    return os.path.join(base, "assets", *parts)
+
+
+def generate_pdf_report(results: list, device_info: dict, output_dir: str,
+                        case_meta: dict | None = None) -> str:
+    """Profesionální forenzní PDF report: titulní strana s logy a údaji o případu,
+    klikací obsah, PDF osnova (bookmarks), hlavička a patička na každé straně.
+    Text je skutečný → fulltextové vyhledávání (Ctrl+F) funguje."""
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
-    from reportlab.lib.units import cm
+    from reportlab.lib.units import cm, mm
     from reportlab.lib import colors
     from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-        HRFlowable, PageBreak, KeepTogether
+        BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, Table, TableStyle,
+        Image, PageBreak, KeepTogether, FrameBreak, NextPageTemplate,
     )
+    from reportlab.platypus.tableofcontents import TableOfContents
     from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.pdfgen import canvas as _canvas
+
+    case_meta = case_meta or {}
 
     # ── Fonty ─────────────────────────────────────────────────────────────────
-    FONT_DIR = r"C:\Windows\Fonts"
+    FONT_DIR = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
     _fonts = {"R": "arial.ttf", "B": "arialbd.ttf", "I": "ariali.ttf"}
     _reg = {}
     for alias, fname in _fonts.items():
         fpath = os.path.join(FONT_DIR, fname)
+        fallback = "Helvetica-Bold" if alias == "B" else ("Helvetica-Oblique" if alias == "I" else "Helvetica")
         if os.path.exists(fpath):
             try:
                 pdfmetrics.registerFont(TTFont(f"AR{alias}", fpath))
                 _reg[alias] = f"AR{alias}"
             except Exception:
-                _reg[alias] = "Helvetica-Bold" if alias == "B" else "Helvetica"
+                _reg[alias] = fallback
         else:
-            _reg[alias] = "Helvetica-Bold" if alias == "B" else "Helvetica"
+            _reg[alias] = fallback
+    F, FB, FI = _reg["R"], _reg["B"], _reg["I"]
 
-    F  = _reg["R"]
-    FB = _reg["B"]
-
-    # ── Barvy ─────────────────────────────────────────────────────────────────
-    C_NAVY    = colors.HexColor("#0d1b3e")   # hlavička, tmavá
-    C_BLUE    = colors.HexColor("#1565c0")   # akcentní modrá
-    C_BLUE_L  = colors.HexColor("#1976d2")   # světlejší modrá pro záhlaví tabulek
-    C_GREEN   = colors.HexColor("#1b5e20")
-    C_GREEN_L = colors.HexColor("#e8f5e9")
-    C_RED     = colors.HexColor("#b71c1c")
-    C_RED_L   = colors.HexColor("#ffebee")
-    C_MUTED   = colors.HexColor("#546e7a")
+    # ── Barevná paleta (profesionální, tmavě modrá) ───────────────────────────
+    C_NAVY    = colors.HexColor("#0d2149")   # titulní pozadí, hlavička sekcí
+    C_BLUE    = colors.HexColor("#1f5fb0")   # akcent
+    C_BLUE_L  = colors.HexColor("#2a6fc4")   # záhlaví tabulek
+    C_ACCENT  = colors.HexColor("#00a3cc")   # tyrkysový proužek (jako appka)
+    C_GREEN   = colors.HexColor("#1b7a3d")
+    C_GREEN_L = colors.HexColor("#e6f4ea")
+    C_RED     = colors.HexColor("#b3261e")
+    C_RED_L   = colors.HexColor("#fdecea")
+    C_MUTED   = colors.HexColor("#5a6b82")
+    C_ROW_ALT = colors.HexColor("#eef3fb")
+    C_ROW_W   = colors.white
+    C_BORDER  = colors.HexColor("#cdd8ea")
+    C_LABEL   = colors.HexColor("#e9eefa")
+    C_TEXT    = colors.HexColor("#1a2233")
     C_WHITE   = colors.white
-    C_ROW_ALT = colors.HexColor("#f0f4ff")
-    C_ROW_W   = colors.HexColor("#ffffff")
-    C_BORDER  = colors.HexColor("#c5cae9")
-    C_LABEL   = colors.HexColor("#e8eaf6")
-    C_TEXT    = colors.HexColor("#1a1a2e")
 
-    PAGE_W = A4[0] - 4 * cm
-    MAX_ROWS_PDF = 500   # limit řádků v PDF (kompletní data → Excel/JSON)
+    MARGIN   = 1.8 * cm
+    PAGE_W, PAGE_H = A4
+    CONTENT_W = PAGE_W - 2 * MARGIN
+    HEADER_H = 1.25 * cm    # pruh pro hlavičku na obsahových stranách
+    FOOTER_H = 1.2 * cm
+    MAX_ROWS_PDF = 500
 
-    # ── Styly ─────────────────────────────────────────────────────────────────
-    def _style(name, font=None, size=9, color=C_TEXT, bold=False, align=TA_LEFT,
-               before=0, after=4, leading=None):
-        return ParagraphStyle(
-            name, fontName=font or (FB if bold else F),
-            fontSize=size, textColor=color,
-            alignment=align, spaceBefore=before, spaceAfter=after,
-            leading=leading or (size * 1.35),
-        )
-
-    s_cover_title = _style("ct", font=FB, size=26, color=C_WHITE, align=TA_LEFT, after=6)
-    s_cover_sub   = _style("cs", size=12, color=colors.HexColor("#90caf9"), align=TA_LEFT, after=4)
-    s_cover_meta  = _style("cm", size=9,  color=colors.HexColor("#bbdefb"), align=TA_LEFT, after=2)
-    s_h2          = _style("h2", font=FB, size=11, color=C_BLUE, before=14, after=5)
-    s_body        = _style("bd", size=8,  color=C_MUTED, after=3)
-    s_cell        = _style("cl", size=8,  color=C_TEXT, after=0, leading=11)
-    s_cell_hdr    = _style("ch", font=FB, size=8, color=C_WHITE, after=0, leading=11)
-    s_cell_ok     = _style("co", font=FB, size=8, color=C_GREEN, after=0, leading=11)
-    s_cell_err    = _style("ce", font=FB, size=8, color=C_RED,   after=0, leading=11)
-    s_stat_num    = _style("sn", font=FB, size=20, color=C_BLUE, align=TA_CENTER, after=2)
-    s_stat_lbl    = _style("sl", size=7,  color=C_MUTED, align=TA_CENTER, after=0)
-
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
     pdf_path  = os.path.join(output_dir, "report.pdf")
 
-    model        = device_info.get("model", "N/A")
     manufacturer = device_info.get("manufacturer", "N/A")
+    model        = device_info.get("model", "N/A")
     android      = device_info.get("android", "N/A")
     serial       = device_info.get("serial", "N/A")
+    imei         = device_info.get("imei", "N/A")
+    device_label = f"{manufacturer} {model}".strip() or "N/A"
+
+    # Nastavení (branding reportu) – examiner/organizace se doplní z nastavení,
+    # pokud nejsou v case_meta; logo firmy a přepínače bloků řídí panel Nastavení.
+    from . import settings as _settings
+    _cfg = _settings.load()
+
+    case_no   = case_meta.get("case_number") or ""
+    evidence  = case_meta.get("evidence_id") or ""
+    examiner  = case_meta.get("examiner") or _cfg.get("report_examiner", "")
+    org       = case_meta.get("organization") or _cfg.get("report_organization", "")
+    case_note = case_meta.get("note") or ""
+    no_case   = t("rpt.no_case")
 
     ok_count   = sum(1 for r in results if r.success)
     fail_count = len(results) - ok_count
     total_rec  = sum(r.count for r in results if r.success)
 
-    # ── Dokument ──────────────────────────────────────────────────────────────
-    doc = SimpleDocTemplate(
-        pdf_path, pagesize=A4,
-        leftMargin=2*cm, rightMargin=2*cm,
-        topMargin=0, bottomMargin=2*cm,
-        title=t("rpt.doc_title"), author="",
-    )
+    # ── Styly ─────────────────────────────────────────────────────────────────
+    def _st(name, font=F, size=9, color=C_TEXT, align=TA_LEFT, before=0, after=4,
+            leading=None):
+        return ParagraphStyle(name, fontName=font, fontSize=size, textColor=color,
+                              alignment=align, spaceBefore=before, spaceAfter=after,
+                              leading=leading or size * 1.32)
 
+    s_body   = _st("bd", size=8.5, color=C_MUTED, after=3)
+    s_cell   = _st("cl", size=8, color=C_TEXT, after=0, leading=11)
+    s_hdr    = _st("ch", font=FB, size=8, color=C_WHITE, after=0, leading=11)
+    s_ok     = _st("co", font=FB, size=8, color=C_GREEN, after=0, leading=11)
+    s_err    = _st("ce", font=FB, size=8, color=C_RED, after=0, leading=11)
+    # Nadpisy sekcí – podle jmen stylu je afterFlowable zařadí do obsahu/osnovy.
+    # keepWithNext drží nadpis u následující tabulky (bez KeepTogetheru, který
+    # u velkých tabulek u hranice stránky rozhodí stránkování a obsah = TOC).
+    s_sec0   = _st("SectionH0", font=FB, size=13, color=C_NAVY, before=2, after=8, leading=16)
+    s_sec1   = _st("SectionH1", font=FB, size=11, color=C_BLUE, before=2, after=6, leading=14)
+    s_sec0.keepWithNext = True
+    s_sec1.keepWithNext = True
+
+    # ── Dokument: šablony stránek + obsah/osnova ──────────────────────────────
+    _bm = {"n": 0}
+
+    _total = {"n": 0}
+
+    class _ReportDoc(BaseDocTemplate):
+        def beforeDocument(self):
+            # Nuluj počítadlo na začátku každého průchodu multiBuild → klíče
+            # sekcí jsou stabilní a obsah (TOC) konverguje.
+            _bm["n"] = 0
+
+        def afterFlowable(self, flowable):
+            if not isinstance(flowable, Paragraph):
+                return
+            sn = flowable.style.name
+            if sn not in ("SectionH0", "SectionH1"):
+                return
+            level = 0 if sn == "SectionH0" else 1
+            text = flowable.getPlainText()
+            _bm["n"] += 1
+            key = f"sec{_bm['n']}"
+            self.canv.bookmarkPage(key)
+            self.canv.addOutlineEntry(text, key, level=level, closed=(level == 0))
+            self.notify("TOCEntry", (level, text, self.page, key))
+
+    cover_frame = Frame(MARGIN, MARGIN, CONTENT_W, PAGE_H - 2 * MARGIN,
+                        id="cover", leftPadding=0, rightPadding=0,
+                        topPadding=0, bottomPadding=0)
+    content_frame = Frame(MARGIN, MARGIN + FOOTER_H - 0.4 * cm, CONTENT_W,
+                          PAGE_H - 2 * MARGIN - HEADER_H - FOOTER_H + 0.8 * cm,
+                          id="content", leftPadding=0, rightPadding=0,
+                          topPadding=0, bottomPadding=0)
+
+    # ── Hlavička + patička (inline přes onPage → zachová záložky/odkazy) ──────
+    header_line = []
+    if case_no:
+        header_line.append(f"{t('rpt.hdr_case')}: {case_no}")
+    if evidence:
+        header_line.append(f"{t('rpt.hdr_evidence')}: {evidence}")
+    header_line.append(device_label)
+    header_text = "    ·    ".join(header_line)
+    footer_left = f"ForenziQ Toolkit  ·  {timestamp}"
+
+    def _decorate(canvas, docu):
+        page_num = canvas.getPageNumber()
+        # Celkový počet stran = maximum přes průchody multiBuild. Jakmile TOC
+        # zkonverguje, drží se počet stabilní, takže všechny strany finálního
+        # průchodu dostanou správné „N" (plní se z předchozího průchodu).
+        _total["n"] = max(_total["n"], page_num)
+        if page_num == 1:
+            return   # titulní strana bez hlavičky/patičky
+        canvas.saveState()
+        canvas.setFont(F, 7.5)
+        canvas.setFillColor(C_MUTED)
+        canvas.drawString(MARGIN, PAGE_H - MARGIN + 0.25 * cm, header_text[:150])
+        canvas.setStrokeColor(C_BORDER)
+        canvas.setLineWidth(0.6)
+        canvas.line(MARGIN, PAGE_H - MARGIN, PAGE_W - MARGIN, PAGE_H - MARGIN)
+        yl = MARGIN - 0.1 * cm
+        canvas.line(MARGIN, yl + 0.35 * cm, PAGE_W - MARGIN, yl + 0.35 * cm)
+        canvas.setFont(F, 7.5)
+        canvas.setFillColor(C_MUTED)
+        canvas.drawString(MARGIN, yl, footer_left)
+        total = _total["n"] or page_num
+        canvas.drawRightString(PAGE_W - MARGIN, yl,
+                               t("rpt.page_of").format(n=page_num - 1, total=total - 1))
+        canvas.restoreState()
+
+    doc = _ReportDoc(pdf_path, pagesize=A4,
+                     leftMargin=MARGIN, rightMargin=MARGIN,
+                     topMargin=MARGIN, bottomMargin=MARGIN,
+                     title=t("rpt.doc_title"), author="ForenziQ Toolkit")
+    doc.addPageTemplates([
+        PageTemplate(id="cover", frames=[cover_frame]),
+        PageTemplate(id="content", frames=[content_frame], onPage=_decorate),
+    ])
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # TITULNÍ STRANA
+    # ══════════════════════════════════════════════════════════════════════════
     story = []
 
-    # ── Cover header (canvas-drawn dark band) ─────────────────────────────────
-    # Simulujeme tmavou hlavičku přes tabulku
-    cover_hdr = Table(
-        [[Paragraph(t("rpt.title_upper"), s_cover_title)],
-         [Paragraph(f"{manufacturer} {model}", s_cover_sub)],
-         [Paragraph(f"Android {android}  ·  S/N: {serial}  ·  {timestamp}", s_cover_meta)]],
-        colWidths=[PAGE_W + 0*cm],
+    def _logo(path, max_w, max_h):
+        if not os.path.exists(path):
+            return None
+        try:
+            img = Image(path)
+            iw, ih = img.imageWidth, img.imageHeight
+            sc = min(max_w / iw, max_h / ih)
+            img.drawWidth, img.drawHeight = iw * sc, ih * sc
+            return img
+        except Exception:
+            return None
+
+    sw_logo = None
+    if _cfg.get("report_show_tool_logo", True):
+        sw_logo = _logo(_report_asset("forenziq_256.png"), 1.5 * cm, 1.5 * cm)
+
+    company_logo = None
+    if _cfg.get("report_show_company_logo", True):
+        _cpath = _cfg.get("report_company_logo", "") or _report_asset("company_logo.png")
+        company_logo = _logo(_cpath, 4.5 * cm, 1.6 * cm)
+
+    s_brand = _st("brand", font=FB, size=15, color=C_NAVY, after=0, leading=17)
+    s_brandsub = _st("brandsub", size=7.5, color=C_MUTED, after=0, leading=10)
+
+    brand_cell = [[sw_logo or Paragraph("", s_body),
+                   Paragraph("ForenziQ <font color='#00a3cc'>Toolkit</font><br/>"
+                             "<font size=7 color='#5a6b82'>Android Forensic Suite</font>",
+                             s_brand)]]
+    brand_tbl = Table(brand_cell, colWidths=[1.7 * cm, 6 * cm])
+    brand_tbl.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (0, 0), 6),
+    ]))
+    header_row = Table(
+        [[brand_tbl, company_logo or Paragraph("", s_brandsub)]],
+        colWidths=[CONTENT_W - 4.8 * cm, 4.8 * cm],
     )
-    cover_hdr.setStyle(TableStyle([
-        ("BACKGROUND",   (0, 0), (-1, -1), C_NAVY),
-        ("TOPPADDING",   (0, 0), (-1, -1), 10),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 10),
-        ("LEFTPADDING",  (0, 0), (-1, -1), 18),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 18),
-        ("LINEBELOW",    (0, -1), (-1, -1), 3, C_BLUE),
-    ]))
-    story.append(cover_hdr)
-    story.append(Spacer(1, 0.7*cm))
-
-    # ── Summary stats (4 karty) ───────────────────────────────────────────────
-    def _stat_card(num, label, bg, num_color=None):
-        n_style = ParagraphStyle("_sn", fontName=FB, fontSize=20,
-                                 textColor=num_color or C_BLUE,
-                                 alignment=TA_CENTER, leading=26)
-        l_style = ParagraphStyle("_sl", fontName=F, fontSize=7,
-                                 textColor=C_MUTED,
-                                 alignment=TA_CENTER, leading=10)
-        return [[Paragraph(str(num), n_style)], [Paragraph(label, l_style)]]
-
-    stat_w = PAGE_W / 4
-    stats_data = [[
-        Table(_stat_card(len(results), t("rpt.modules_total"), C_LABEL),          colWidths=[stat_w]),
-        Table(_stat_card(ok_count,     t("rpt.ok"),       C_GREEN_L, C_GREEN), colWidths=[stat_w]),
-        Table(_stat_card(fail_count,   t("rpt.failed"),   C_RED_L,   C_RED),   colWidths=[stat_w]),
-        Table(_stat_card(f"{total_rec:,}", t("rpt.records_total"), C_LABEL),         colWidths=[stat_w]),
-    ]]
-    for card_tbl in stats_data[0]:
-        card_tbl.setStyle(TableStyle([
-            ("TOPPADDING",   (0, 0), (-1, -1), 10),
-            ("BOTTOMPADDING",(0, 0), (-1, -1), 10),
-        ]))
-
-    stats_tbl = Table(stats_data, colWidths=[stat_w]*4)
-    stats_tbl.setStyle(TableStyle([
-        ("BACKGROUND",   (0, 0), (0, 0), C_LABEL),
-        ("BACKGROUND",   (1, 0), (1, 0), C_GREEN_L),
-        ("BACKGROUND",   (2, 0), (2, 0), C_RED_L),
-        ("BACKGROUND",   (3, 0), (3, 0), C_LABEL),
-        ("GRID",         (0, 0), (-1, -1), 0.5, C_BORDER),
-        ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING",   (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 0),
-        ("LEFTPADDING",  (0, 0), (-1, -1), 0),
+    header_row.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("LINEBELOW", (0, 0), (-1, -1), 1, C_BORDER),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
     ]))
-    story.append(stats_tbl)
-    story.append(Spacer(1, 0.6*cm))
+    story.append(header_row)
+    story.append(Spacer(1, 3.2 * cm))
 
-    # ── Informace o zařízení ─────────────────────────────────────────────────
-    story.append(Paragraph(t("rpt.device_info"), s_h2))
+    # Velký titul
+    story.append(Paragraph(t("rpt.title_upper"),
+                           _st("ctitle", font=FB, size=30, color=C_NAVY, after=4, leading=34)))
+    story.append(Paragraph(t("rpt.cover_subtitle"),
+                           _st("csub", size=12.5, color=C_BLUE, after=0, leading=16)))
+    # tyrkysový oddělovač
+    sep = Table([[""]], colWidths=[4 * cm], rowHeights=[3])
+    sep.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), C_ACCENT)]))
+    story.append(Spacer(1, 10))
+    story.append(sep)
+    story.append(Spacer(1, 1.4 * cm))
+
+    def _cover_block(title, rows):
+        head = Paragraph(title, _st("cbh", font=FB, size=10, color=C_WHITE, after=0, leading=14))
+        head_tbl = Table([[head]], colWidths=[CONTENT_W])
+        head_tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), C_NAVY),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        body_rows = []
+        for lbl, val in rows:
+            body_rows.append([
+                Paragraph(lbl, _st("cbl", font=FB, size=8.5, color=C_NAVY, after=0, leading=12)),
+                Paragraph(str(val) if val not in ("", None) else no_case,
+                          _st("cbv", size=8.5, color=C_TEXT, after=0, leading=12)),
+            ])
+        body_tbl = Table(body_rows, colWidths=[4.5 * cm, CONTENT_W - 4.5 * cm])
+        body_tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (0, -1), C_LABEL),
+            ("ROWBACKGROUNDS", (1, 0), (1, -1), [C_ROW_W, C_ROW_ALT]),
+            ("GRID", (0, 0), (-1, -1), 0.4, C_BORDER),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ]))
+        return KeepTogether([head_tbl, body_tbl, Spacer(1, 0.7 * cm)])
+
+    if _cfg.get("report_show_case_details", True):
+        story.append(_cover_block(t("rpt.case_details"), [
+            (t("ev.f_case"), case_no),
+            (t("ev.f_evidence_id"), evidence),
+            (t("ev.f_examiner"), examiner),
+            (t("ev.f_org"), org),
+            (t("ev.f_note"), case_note),
+        ]))
+    story.append(_cover_block(t("rpt.device_summary"), [
+        (t("rpt.f_manufacturer"), manufacturer),
+        ("Model", model),
+        (t("rpt.f_android"), android),
+        (t("rpt.f_serial"), serial),
+        ("IMEI", imei),
+    ]))
+    story.append(Spacer(1, 0.4 * cm))
+    story.append(Paragraph(t("rpt.generated").format(ts=timestamp),
+                           _st("cgen", size=8, color=C_MUTED, after=0)))
+
+    story.append(NextPageTemplate("content"))
+    story.append(PageBreak())
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # OBSAH
+    # ══════════════════════════════════════════════════════════════════════════
+    story.append(Paragraph(t("rpt.toc"),
+                           _st("toch", font=FB, size=16, color=C_NAVY, after=12, leading=20)))
+    toc = TableOfContents()
+    toc.levelStyles = [
+        ParagraphStyle("toc0", fontName=FB, fontSize=10, textColor=C_NAVY,
+                       leading=18, leftIndent=4, firstLineIndent=0),
+        ParagraphStyle("toc1", fontName=F, fontSize=9, textColor=C_TEXT,
+                       leading=15, leftIndent=22, firstLineIndent=0),
+    ]
+    story.append(toc)
+    story.append(PageBreak())
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SEKCE: Informace o zařízení
+    # ══════════════════════════════════════════════════════════════════════════
+    story.append(Paragraph(t("rpt.device_info"), s_sec0))
+
+    stat_w = CONTENT_W / 4
+
+    def _stat(num, label, num_color):
+        return Table([[Paragraph(str(num), _st("sn", font=FB, size=19, color=num_color,
+                                                align=TA_CENTER, after=2, leading=24))],
+                      [Paragraph(label, _st("sl", size=7.5, color=C_MUTED, align=TA_CENTER,
+                                            after=0, leading=10))]],
+                     colWidths=[stat_w])
+
+    stats = Table([[_stat(len(results), t("rpt.modules_total"), C_BLUE),
+                    _stat(ok_count, t("rpt.ok"), C_GREEN),
+                    _stat(fail_count, t("rpt.failed"), C_RED),
+                    _stat(f"{total_rec:,}", t("rpt.records_total"), C_BLUE)]],
+                   colWidths=[stat_w] * 4)
+    stats.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, 0), C_LABEL),
+        ("BACKGROUND", (1, 0), (1, 0), C_GREEN_L),
+        ("BACKGROUND", (2, 0), (2, 0), C_RED_L),
+        ("BACKGROUND", (3, 0), (3, 0), C_LABEL),
+        ("GRID", (0, 0), (-1, -1), 0.5, C_BORDER),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 9),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+    ]))
+    story.append(stats)
+    story.append(Spacer(1, 0.5 * cm))
 
     dev_fields = [
-        (t("rpt.f_manufacturer"), device_info.get("manufacturer", "N/A")),
-        ("Model",                device_info.get("model", "N/A")),
-        (t("rpt.f_android"),      device_info.get("android", "N/A")),
-        ("SDK",                  device_info.get("sdk", "N/A")),
-        (t("rpt.f_serial"),       device_info.get("serial", "N/A")),
-        ("IMEI",                 device_info.get("imei", "N/A")),
-        (t("rpt.f_patch"),        device_info.get("security_patch", "N/A")),
-        (t("rpt.f_battery"),      device_info.get("battery", "N/A")),
-        ("Brand",                device_info.get("brand", "N/A")),
-        ("Build ID",             device_info.get("build", "N/A")),
+        (t("rpt.f_manufacturer"), manufacturer), ("Model", model),
+        (t("rpt.f_android"), android), ("SDK", device_info.get("sdk", "N/A")),
+        (t("rpt.f_serial"), serial), ("IMEI", imei),
+        (t("rpt.f_patch"), device_info.get("security_patch", "N/A")),
+        (t("rpt.f_battery"), device_info.get("battery", "N/A")),
+        ("Brand", device_info.get("brand", "N/A")),
+        ("Build ID", device_info.get("build", "N/A")),
     ]
     dev_rows = []
     for i in range(0, len(dev_fields), 2):
         l = dev_fields[i]
         r2 = dev_fields[i + 1] if i + 1 < len(dev_fields) else ("", "")
-        dev_rows.append([
-            Paragraph(l[0],  s_cell_hdr),
-            Paragraph(l[1],  s_cell),
-            Paragraph(r2[0], s_cell_hdr),
-            Paragraph(r2[1], s_cell),
-        ])
-
-    dev_tbl = Table(dev_rows, colWidths=[3.8*cm, 5.8*cm, 3.8*cm, 5.6*cm], hAlign="LEFT")
+        dev_rows.append([Paragraph(l[0], s_hdr), Paragraph(str(l[1]), s_cell),
+                         Paragraph(r2[0], s_hdr), Paragraph(str(r2[1]), s_cell)])
+    dev_tbl = Table(dev_rows, colWidths=[3.6 * cm, CONTENT_W / 2 - 3.6 * cm,
+                                         3.6 * cm, CONTENT_W / 2 - 3.6 * cm], hAlign="LEFT")
     dev_tbl.setStyle(TableStyle([
-        ("BACKGROUND",     (0, 0), (0, -1), C_BLUE_L),
-        ("BACKGROUND",     (2, 0), (2, -1), C_BLUE_L),
+        ("BACKGROUND", (0, 0), (0, -1), C_BLUE_L), ("BACKGROUND", (2, 0), (2, -1), C_BLUE_L),
         ("ROWBACKGROUNDS", (1, 0), (1, -1), [C_LABEL, C_ROW_W]),
         ("ROWBACKGROUNDS", (3, 0), (3, -1), [C_LABEL, C_ROW_W]),
-        ("GRID",           (0, 0), (-1, -1), 0.4, C_BORDER),
-        ("VALIGN",         (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING",     (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING",  (0, 0), (-1, -1), 6),
-        ("LEFTPADDING",    (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING",   (0, 0), (-1, -1), 8),
+        ("GRID", (0, 0), (-1, -1), 0.4, C_BORDER), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
     ]))
     story.append(dev_tbl)
-    story.append(Spacer(1, 0.5*cm))
 
-    # ── Souhrn extrakce ───────────────────────────────────────────────────────
-    story.append(Paragraph(t("rpt.summary"), s_h2))
-
-    sum_rows = [[
-        Paragraph(t("rpt.col_module"),  s_cell_hdr),
-        Paragraph(t("rpt.col_status"),  s_cell_hdr),
-        Paragraph(t("rpt.col_records"), s_cell_hdr),
-        Paragraph(t("rpt.col_note"),    s_cell_hdr),
-    ]]
+    # ══════════════════════════════════════════════════════════════════════════
+    # SEKCE: Souhrn extrakce
+    # ══════════════════════════════════════════════════════════════════════════
+    story.append(Paragraph(t("rpt.summary"), s_sec0))
+    sum_rows = [[Paragraph(t("rpt.col_module"), s_hdr), Paragraph(t("rpt.col_status"), s_hdr),
+                 Paragraph(t("rpt.col_records"), s_hdr), Paragraph(t("rpt.col_note"), s_hdr)]]
     for r in results:
-        stav_s = s_cell_ok if r.success else s_cell_err
         sum_rows.append([
-            Paragraph(r.label,                                       s_cell),
-            Paragraph("OK" if r.success else t("rpt.status_err"), stav_s),
-            Paragraph(f"{r.count:,}" if r.success else "",           s_cell),
-            Paragraph("" if r.success else r.error[:80],            s_cell),
+            Paragraph(r.label, s_cell),
+            Paragraph("OK" if r.success else t("rpt.status_err"), s_ok if r.success else s_err),
+            Paragraph(f"{r.count:,}" if r.success else "", s_cell),
+            Paragraph("" if r.success else r.error[:80], s_cell),
         ])
-
-    sum_tbl = Table(sum_rows, colWidths=[6.5*cm, 2*cm, 2.5*cm, PAGE_W-11*cm],
+    sum_tbl = Table(sum_rows, colWidths=[6.5 * cm, 2 * cm, 2.5 * cm, CONTENT_W - 11 * cm],
                     hAlign="LEFT", repeatRows=1)
     sum_tbl.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, 0), C_BLUE_L),
-        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [C_ROW_W, C_ROW_ALT]),
-        ("GRID",          (0, 0), (-1, -1), 0.4, C_BORDER),
-        ("VALIGN",        (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING",    (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 7),
-        ("RIGHTPADDING",  (0, 0), (-1, -1), 7),
+        ("BACKGROUND", (0, 0), (-1, 0), C_BLUE_L),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [C_ROW_W, C_ROW_ALT]),
+        ("GRID", (0, 0), (-1, -1), 0.4, C_BORDER), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7), ("RIGHTPADDING", (0, 0), (-1, -1), 7),
     ]))
     story.append(sum_tbl)
-    story.append(Paragraph(t("rpt.generated").format(ts=timestamp), s_body))
-    story.append(PageBreak())
 
-    # ── Detailní data modulů ──────────────────────────────────────────────────
-    def _data_table(data_list: list) -> Table | None:
+    # ══════════════════════════════════════════════════════════════════════════
+    # SEKCE: Extrahovaná data (parent) + jednotlivé moduly (child)
+    # ══════════════════════════════════════════════════════════════════════════
+    def _data_table(data_list):
         if not data_list:
             return None
         sample = data_list[0]
-        # Přeskoč klíče s binárním/URL obsahem pro přehlednost
-        keys = [k for k in sample.keys()
-                if not any(x in k.lower() for x in ("raw", "blob"))]
+        keys = [k for k in sample.keys() if not any(x in k.lower() for x in ("raw", "blob"))]
         if not keys:
             keys = list(sample.keys())
-
-        col_count = len(keys)
-        col_w = [max(1.8*cm, min(PAGE_W / col_count, 8*cm))] * col_count
-
-        rows = [[Paragraph(field_label(k), s_cell_hdr) for k in keys]]
+        n = len(keys)
+        col_w = [max(1.8 * cm, min(CONTENT_W / n, 8 * cm))] * n
+        rows = [[Paragraph(field_label(k), s_hdr) for k in keys]]
         for rec in data_list[:MAX_ROWS_PDF]:
-            rows.append([
-                Paragraph(str(rec.get(k, ""))[:180], s_cell)
-                for k in keys
-            ])
-
+            rows.append([Paragraph(str(rec.get(k, ""))[:180], s_cell) for k in keys])
         tbl = Table(rows, colWidths=col_w, repeatRows=1, hAlign="LEFT")
         tbl.setStyle(TableStyle([
-            ("BACKGROUND",    (0, 0), (-1, 0), C_BLUE_L),
-            ("ROWBACKGROUNDS",(0, 1), (-1, -1), [C_ROW_W, C_ROW_ALT]),
-            ("GRID",          (0, 0), (-1, -1), 0.3, C_BORDER),
-            ("VALIGN",        (0, 0), (-1, -1), "TOP"),
-            ("TOPPADDING",    (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ("LEFTPADDING",   (0, 0), (-1, -1), 6),
-            ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
+            ("BACKGROUND", (0, 0), (-1, 0), C_BLUE_L),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [C_ROW_W, C_ROW_ALT]),
+            ("GRID", (0, 0), (-1, -1), 0.3, C_BORDER), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
         ]))
         return tbl
 
-    for r in results:
-        if not r.success or not r.data:
-            continue
+    data_results = [r for r in results if r.success and r.data]
+    if data_results:
+        story.append(PageBreak())
+        story.append(Paragraph(t("rpt.sec_data"), s_sec0))
 
-        section = []
-
-        # Sekční hlavička s modrým levým pruhem (simulace přes tabulku)
-        hdr_tbl = Table(
-            [[Paragraph(r.label, ParagraphStyle(
-                "_sh", fontName=FB, fontSize=11, textColor=C_BLUE,
-                leading=14, spaceBefore=0, spaceAfter=0,
-            ))]],
-            colWidths=[PAGE_W],
-        )
-        hdr_tbl.setStyle(TableStyle([
-            ("LINEBELOW",    (0, 0), (-1, -1), 1.5, C_BLUE),
-            ("TOPPADDING",   (0, 0), (-1, -1), 10),
-            ("BOTTOMPADDING",(0, 0), (-1, -1), 4),
-            ("LEFTPADDING",  (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ]))
-        section.append(hdr_tbl)
-
+    for r in data_results:
+        head = Paragraph(r.label, s_sec1)
+        block = [head]
         if isinstance(r.data, list) and r.data:
             tbl = _data_table(r.data)
             if tbl:
-                section.append(tbl)
+                block.append(tbl)
             if len(r.data) > MAX_ROWS_PDF:
-                section.append(Paragraph(
-                    t("rpt.truncated").format(shown=MAX_ROWS_PDF, total=len(r.data)),
-                    s_body,
-                ))
-
+                block.append(Paragraph(
+                    t("rpt.truncated").format(shown=MAX_ROWS_PDF, total=len(r.data)), s_body))
         elif isinstance(r.data, dict):
-            kv_rows = [
-                [Paragraph(field_label(k), s_cell_hdr), Paragraph(str(v)[:300], s_cell)]
-                for k, v in r.data.items()
-            ]
-            if kv_rows:
-                kv_tbl = Table(kv_rows, colWidths=[5*cm, PAGE_W - 5*cm], hAlign="LEFT")
+            kv = [[Paragraph(field_label(k), s_hdr), Paragraph(str(v)[:300], s_cell)]
+                  for k, v in r.data.items()]
+            if kv:
+                kv_tbl = Table(kv, colWidths=[5 * cm, CONTENT_W - 5 * cm], hAlign="LEFT")
                 kv_tbl.setStyle(TableStyle([
-                    ("BACKGROUND",    (0, 0), (0, -1), C_BLUE_L),
-                    ("ROWBACKGROUNDS",(1, 0), (1, -1), [C_ROW_W, C_ROW_ALT]),
-                    ("GRID",          (0, 0), (-1, -1), 0.4, C_BORDER),
-                    ("VALIGN",        (0, 0), (-1, -1), "TOP"),
-                    ("TOPPADDING",    (0, 0), (-1, -1), 5),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-                    ("LEFTPADDING",   (0, 0), (-1, -1), 8),
-                    ("RIGHTPADDING",  (0, 0), (-1, -1), 8),
+                    ("BACKGROUND", (0, 0), (0, -1), C_BLUE_L),
+                    ("ROWBACKGROUNDS", (1, 0), (1, -1), [C_ROW_W, C_ROW_ALT]),
+                    ("GRID", (0, 0), (-1, -1), 0.4, C_BORDER), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
                 ]))
-                section.append(kv_tbl)
+                block.append(kv_tbl)
+        # Nadpis modulu drží u tabulky keepWithNext (žádný KeepTogether → stabilní
+        # stránkování i obsah).
+        story.extend(block)
+        story.append(Spacer(1, 10))
 
-        section.append(Spacer(1, 8))
-        story.append(KeepTogether(section[:2]))
-        if len(section) > 2:
-            story.extend(section[2:])
-
-    # ── Zápatí ────────────────────────────────────────────────────────────────
-    _total_pages = [0]
-
-    def _footer(canvas, doc):
-        canvas.saveState()
-        w, _ = A4
-        y_line = 1.6*cm
-        y_text = 1.2*cm
-        canvas.setStrokeColor(C_BORDER)
-        canvas.setLineWidth(0.5)
-        canvas.line(2*cm, y_line, w - 2*cm, y_line)
-        canvas.setFont(F, 7.5)
-        canvas.setFillColor(C_MUTED)
-        canvas.drawString(2*cm, y_text, f"{t('rpt.footer')}  ·  {timestamp}")
-        canvas.drawRightString(w - 2*cm, y_text, t("rpt.page").format(n=doc.page))
-        canvas.restoreState()
-
-    doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
+    doc.multiBuild(story)
     return pdf_path
-
-
 def generate_excel_report(results: list, device_info: dict, output_dir: str) -> str:
     """Vygeneruje Excel sešit (.xlsx) z výsledků extrakce."""
     from openpyxl import Workbook
@@ -482,8 +611,13 @@ def generate_excel_report(results: list, device_info: dict, output_dir: str) -> 
         if not r.success or not r.data:
             continue
 
-        # Zkrať název listu na max 31 znaků (limit Excelu)
-        sheet_name = r.label[:31]
+        # Excel: max 31 znaků, bez []:*?/\ a názvy musí být unikátní
+        base = re.sub(r"[\[\]:*?/\\]", "-", r.label).strip("' ")[:31] or r.module[:31]
+        sheet_name, n = base, 2
+        while sheet_name in wb.sheetnames:
+            suffix = f" ({n})"
+            sheet_name = base[:31 - len(suffix)] + suffix
+            n += 1
         ws = wb.create_sheet(sheet_name)
 
         if isinstance(r.data, list) and r.data:

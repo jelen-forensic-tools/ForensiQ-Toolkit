@@ -37,3 +37,18 @@ desktop.ini
 
 # Lokální konfigurace nástrojů
 .claude/
+
+# Index hledání a pracovní produkty analytika uvnitř výstupních složek
+_case/
+*.sqlite-wal
+*.sqlite-shm
+
+# Testy / cache
+.pytest_cache/
+
+# Samostatný projekt SC6531 dump analyzeru (ForenziQ používá jeho kopii v core/s30)
+sc6531-dump-analyzer/
+
+# Ukázková data pro screenshoty (generují se skriptem)
+tools/screenshots/cases/
+tools/screenshots/demo_settings.json

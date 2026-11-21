@@ -5,6 +5,7 @@ import threading
 import customtkinter as ctk
 from core.i18n import t
 from core.bypass import BypassManager
+from . import theme as th
 
 ACCENT    = "#00d4ff"
 BG_CARD   = "#16213e"
@@ -65,8 +66,11 @@ class BypassPanel(ctk.CTkFrame):
         # ── Body (left + right columns) ──────────────────────────────────────
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.grid(row=1, column=0, sticky="nsew")
-        body.grid_columnconfigure(0, weight=3, minsize=380)
-        body.grid_columnconfigure(1, weight=2)
+        # Levý sloupec má PEVNOU šířku (weight 0) → délka popisu metody vpravo
+        # nemění jeho šířku. Pravý sloupec bere zbytek (weight 1), takže se také
+        # nemění podle obsahu. Tím panel při přepínání metod neskáče.
+        body.grid_columnconfigure(0, weight=0, minsize=430)
+        body.grid_columnconfigure(1, weight=1)
         body.grid_rowconfigure(0, weight=1)
 
         self._build_left(body)
@@ -135,13 +139,7 @@ class BypassPanel(ctk.CTkFrame):
         )
 
         # Diagnostics / scan
-        self._btn_scan = ctk.CTkButton(
-            left, text=t("byp.scan"),
-            font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color=ACCENT, text_color="#000",
-            height=36,
-            command=self._run_scan,
-        )
+        self._btn_scan = th.secondary_button(left, t("byp.scan"), self._run_scan)
         self._btn_scan.grid(row=10, column=0, padx=12, pady=(0, 6), sticky="ew")
 
         # ── FRP section ────────────────────────────────────────────────────────
@@ -195,18 +193,22 @@ class BypassPanel(ctk.CTkFrame):
         ctk.CTkLabel(frame, text=icon, font=ctk.CTkFont(size=22)).grid(
             row=0, column=0, rowspan=2, padx=(12, 8), pady=10
         )
-        ctk.CTkLabel(
+        # Pevný wraplength (ne auto_wrap) → žádná <Configure> smyčka, stabilní
+        # výška karet a čisté vykreslení při scrollování.
+        title_lbl = ctk.CTkLabel(
             frame, text=title,
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color=ACCENT if is_sel else WHITE,
-            anchor="w",
-        ).grid(row=0, column=1, sticky="w", pady=(8, 0))
-        ctk.CTkLabel(
+            anchor="w", justify="left", wraplength=120,
+        )
+        title_lbl.grid(row=0, column=1, sticky="ew", pady=(8, 0), padx=(0, 10))
+        sub_lbl = ctk.CTkLabel(
             frame, text=sub,
             font=ctk.CTkFont(size=10),
             text_color=TEXT_MUTED,
-            anchor="w",
-        ).grid(row=1, column=1, sticky="w", pady=(0, 8))
+            anchor="w", justify="left", wraplength=120,
+        )
+        sub_lbl.grid(row=1, column=1, sticky="ew", pady=(0, 8), padx=(0, 10))
 
         for widget in frame.winfo_children():
             widget.bind("<Button-1>", lambda e, v=value: self._select_method(v))
@@ -247,19 +249,12 @@ class BypassPanel(ctk.CTkFrame):
             header, text=t("byp.m1_desc"),
             font=ctk.CTkFont(size=11),
             text_color=TEXT_MUTED,
-            wraplength=500,
+            wraplength=290,
             justify="left",
         )
         self._method_desc.grid(row=1, column=0, sticky="w", pady=(2, 8))
 
-        self._btn_run = ctk.CTkButton(
-            header, text=t("byp.run"),
-            font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color="#f44336", hover_color="#c62828",
-            text_color=WHITE,
-            width=140, height=38,
-            command=self._run_method,
-        )
+        self._btn_run = th.danger_button(header, t("byp.run"), self._run_method, width=150)
         self._btn_run.grid(row=0, column=2, rowspan=2, padx=(10, 0))
 
         # ── Keyboard-unlock input (only shown for the "kbd" method) ───────────

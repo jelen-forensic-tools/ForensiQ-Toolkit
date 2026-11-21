@@ -9,6 +9,7 @@ import threading
 import customtkinter as ctk
 from tkinter import filedialog
 from core.i18n import t
+from . import theme as th
 
 try:
     import tkintermapview
@@ -137,52 +138,34 @@ class MapPanel(ctk.CTkFrame):
     # ── UI construction ───────────────────────────────────────────────────────
 
     def _build(self):
-        # ── Top bar ───────────────────────────────────────────────────────────
-        bar = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=12)
-        bar.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        bar.grid_columnconfigure(1, weight=1)
+        # ── Toolbar ───────────────────────────────────────────────────────────
+        tb = th.Toolbar(self, source=False)
+        tb.grid(row=0, column=0, sticky="ew", pady=(0, th.GAP))
 
-        btn_frame = ctk.CTkFrame(bar, fg_color="transparent")
-        btn_frame.grid(row=0, column=0, padx=16, pady=14, sticky="w")
-
-        self._load_btn = ctk.CTkButton(
-            btn_frame, text=t("map.load"),
-            width=160, height=38,
-            fg_color=ACCENT, text_color="#000",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            command=self._pick_folder,
-        )
+        self._load_btn = th.secondary_button(tb.info, t("map.load"), self._pick_folder,
+                                             width=150)
         self._load_btn.pack(side="left", padx=(0, 10))
+        self._status_lbl = ctk.CTkLabel(tb.info, text=t("map.placeholder"), font=th.f_small(),
+                                        text_color=TEXT_MUTED, anchor="w")
+        self._status_lbl.pack(side="left")
 
-        self._center_btn = ctk.CTkButton(
-            btn_frame, text=t("map.center"),
-            width=110, height=38,
-            fg_color="#2a2a4a", hover_color="#3a3a5a",
-            font=ctk.CTkFont(size=12),
-            command=self._fit_map,
-        )
+        self._center_btn = th.secondary_button(tb.actions, t("map.center"), self._fit_map,
+                                               width=130)
         self._center_btn.pack(side="left")
-
-        self._status_lbl = ctk.CTkLabel(
-            bar, text=t("map.placeholder"),
-            font=ctk.CTkFont(size=12),
-            text_color=TEXT_MUTED,
-        )
-        self._status_lbl.grid(row=0, column=1, padx=16, sticky="w")
 
         # ── Main body ─────────────────────────────────────────────────────────
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.grid(row=1, column=0, sticky="nsew")
         body.grid_columnconfigure(0, weight=3, minsize=380)
-        body.grid_columnconfigure(1, weight=2)
+        body.grid_columnconfigure(1, weight=2, minsize=340)
         body.grid_rowconfigure(0, weight=1)
 
         self._build_map(body)
         self._build_list(body)
 
     def _build_map(self, parent):
-        map_card = ctk.CTkFrame(parent, fg_color=BG_CARD, corner_radius=12)
-        map_card.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        map_card = ctk.CTkFrame(parent, fg_color=BG_CARD, corner_radius=th.RADIUS_CARD)
+        map_card.grid(row=0, column=0, sticky="nsew", padx=(0, th.GAP))
         map_card.grid_columnconfigure(0, weight=1)
         map_card.grid_rowconfigure(0, weight=1)
 
@@ -215,15 +198,10 @@ class MapPanel(ctk.CTkFrame):
 
         # List header
         hdr = ctk.CTkFrame(list_card, fg_color="transparent")
-        hdr.grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
+        hdr.grid(row=0, column=0, sticky="ew", padx=th.PAD, pady=(th.PAD - 4, 8))
         hdr.grid_columnconfigure(0, weight=1)
 
-        self._list_title = ctk.CTkLabel(
-            hdr, text=t("map.list_title"),
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=ACCENT,
-            anchor="w",
-        )
+        self._list_title = th.section_label(hdr, t("map.list_title"))
         self._list_title.grid(row=0, column=0, sticky="w")
 
         self._count_lbl = ctk.CTkLabel(
@@ -234,9 +212,7 @@ class MapPanel(ctk.CTkFrame):
         )
         self._count_lbl.grid(row=0, column=1, sticky="e")
 
-        ctk.CTkFrame(list_card, height=1, fg_color="#2a2a3e").grid(
-            row=1, column=0, sticky="ew", padx=14, pady=(0, 0)
-        )
+        th.separator(list_card).grid(row=1, column=0, sticky="ew", padx=th.PAD)
 
         # Scrollable list
         self._scroll = ctk.CTkScrollableFrame(
