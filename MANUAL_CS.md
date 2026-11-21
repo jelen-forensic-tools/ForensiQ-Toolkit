@@ -101,7 +101,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-nebo dvojklikem na `spustit.bat` (použije Python launcher `py`, případně `python` z PATH).
+nebo dvojklikem na `run.bat` (použije Python launcher `py`, případně `python` z PATH).
 
 ### 3.3 ADB (Android Debug Bridge)
 

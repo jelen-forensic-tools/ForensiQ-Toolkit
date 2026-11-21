@@ -100,7 +100,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-or double-click `spustit.bat` (uses the Python launcher `py`, or `python` from PATH).
+or double-click `run.bat` (uses the Python launcher `py`, or `python` from PATH).
 
 ### 3.3 ADB (Android Debug Bridge)
 

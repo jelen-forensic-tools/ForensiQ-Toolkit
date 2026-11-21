@@ -53,7 +53,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-or run `spustit.bat`. For Android, download [SDK Platform-Tools](https://developer.android.com/tools/releases/platform-tools) and extract them into an
+or run `run.bat`. For Android, download [SDK Platform-Tools](https://developer.android.com/tools/releases/platform-tools) and extract them into an
 `adb/` folder in the project (or add them to `PATH`) – ADB is not part of this repository.
 
 **Standalone executable** – build a single-file `ForenziQ.exe` (no Python needed on the target PC):

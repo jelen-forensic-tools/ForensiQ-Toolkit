@@ -53,7 +53,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-nebo spusťte `spustit.bat`. Pro Android stáhněte [SDK Platform-Tools](https://developer.android.com/tools/releases/platform-tools) a rozbalte je do složky
+nebo spusťte `run.bat`. Pro Android stáhněte [SDK Platform-Tools](https://developer.android.com/tools/releases/platform-tools) a rozbalte je do složky
 `adb/` v projektu (nebo je přidejte do `PATH`) – ADB není součástí tohoto repozitáře.
 
 **Samostatný spustitelný soubor** – sestavení jediného `ForenziQ.exe` (na cílovém PC není potřeba Python):
