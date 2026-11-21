@@ -24,6 +24,9 @@ MANIFEST_TXT = "evidence_manifest.txt"
 
 # Outputs of this step itself – never hashed into the manifest.
 _SELF_FILES = {MANIFEST_NAME, MANIFEST_TXT}
+# Pracovní produkt analytika (index hledání, štítky, poznámky) – vzniká až po
+# zajištění dat a mění se během analýzy, proto nepatří do manifestu důkazů.
+_SELF_DIRS = ("_case",)
 
 _CHUNK = 1 << 20  # 1 MiB
 
@@ -46,7 +49,9 @@ def _hash_file(path: str) -> tuple[int, str, str]:
 
 def _iter_files(root: str):
     """Yield (abs_path, rel_path) for every file under root, excluding the manifest."""
-    for dirpath, _dirs, files in os.walk(root):
+    for dirpath, dirs, files in os.walk(root):
+        if os.path.normcase(os.path.abspath(dirpath)) == os.path.normcase(os.path.abspath(root)):
+            dirs[:] = [d for d in dirs if d not in _SELF_DIRS]
         for name in files:
             full = os.path.join(dirpath, name)
             rel = os.path.relpath(full, root).replace(os.sep, "/")
