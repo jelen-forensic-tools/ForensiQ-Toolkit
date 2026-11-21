@@ -1,17 +1,26 @@
 """
-core/search_index.py – fulltextový index nad výstupy extrakce (fáze 1).
+core/search_index.py – fulltextový index nad výstupy extrakce.
 
 Zaindexuje všechny *.json v kořeni výstupní složky do
 `<output_dir>/_case/index.sqlite`:
 
   * records      – jeden řádek = jeden záznam (SMS, hovor, kontakt, soubor…),
                    s odkazem na zdrojový soubor, pozicí a stabilním klíčem
-                   `row_key` (SHA-1 kanonického JSON) pro pozdější štítky,
+                   `row_key` (SHA-1 kanonického JSON) pro štítky,
   * records_fts  – SQLite FTS5 (unicode61, remove_diacritics 2) → hledání
-                   bez ohledu na diakritiku a velikost písmen, i prefixem,
-  * numbers      – normalizovaná telefonní čísla (posledních 9 číslic),
-                   takže +420 777 123 456 = 777123456 = 00420777123456,
-  * entities     – e-maily, URL, IBAN, kryptoadresy, rodná čísla, SPZ.
+                   bez ohledu na diakritiku a velikost písmen, i prefixem;
+                   funguje pro všechna písma, která oddělují slova mezerou
+                   (latinka, cyrilice, řečtina, arabština, hebrejština…),
+  * records_tri  – FTS5 trigram pro záznamy s písmy BEZ mezer mezi slovy
+                   (čínština, japonština, korejština, thajština, laoština,
+                   khmerština, barmština) → hledání podřetězce,
+  * numbers      – telefonní čísla nezávisle na zemi: normalizovaná do
+                   mezinárodního tvaru (bez +/00, bez národní předvolby 0);
+                   dvě čísla se shodují, když jedno je koncovkou druhého
+                   (min. 7 číslic) → +44 7700 900123 = 07700 900123,
+                   +420 777 123 456 = 777123456, +45 12345678 = 12345678,
+  * entities     – e-maily, URL, IBAN (všechny země), kryptoadresy, IMEI,
+                   platební karty, IPv4 + regionální (RČ CZ/SK, SPZ CZ).
 
 Index je přírůstkový: soubory se přeindexují jen při změně (velikost, mtime,
 SHA-256); smazané soubory se z indexu odstraní. Složka `_case/` je pracovní
@@ -32,7 +41,7 @@ from typing import Callable, Iterable, Iterator, Optional
 
 CASE_DIR = "_case"
 INDEX_NAME = "index.sqlite"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Soubory ve výstupní složce, které nejsou daty zařízení (neindexují se).
 _SKIP_FILES = {"evidence_manifest.json"}
@@ -41,30 +50,94 @@ _SKIP_FILES = {"evidence_manifest.json"}
 _NUMBER_KEYS = re.compile(
     r"(^|_)(number|numbers|phone|phones|tel|msisdn|address|caller|callee|"
     r"from|to|sender|recipient|remote|handle|jid)($|_)", re.I)
-# Klíče s datem – první nalezený se použije jako čas záznamu.
+# Klíče s datem – první nalezený (dle pořadí) se použije jako čas záznamu.
 _DATE_KEYS = ("date", "time", "timestamp", "datetime", "date_taken",
               "date_sent", "date_received", "start", "created", "modified",
               "last_time_used", "last_visit")
 
 _DATE_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y:%m:%d %H:%M:%S",
-                 "%Y-%m-%d %H:%M", "%d.%m.%Y %H:%M:%S", "%d.%m.%Y %H:%M",
-                 "%d.%m.%Y", "%Y-%m-%d", "%Y%m%d")
+                 "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d",
+                 "%d.%m.%Y %H:%M:%S", "%d.%m.%Y %H:%M", "%d.%m.%Y",
+                 "%Y-%m-%d", "%Y%m%d")
 
+# Písma, která neoddělují slova mezerou → trigramový index.
+# (CJK, kana, hangul, thajština, laoština, barmština, khmerština)
+_NOSPACE_RE = re.compile(
+    "[぀-ヿ㐀-䶿一-鿿豈-﫿가-힯"
+    "฀-๿຀-໿က-႟ក-៿]")
+
+_RE_ISO_DT = re.compile(r"(19|20)\d\d-[01]\d-[0-3]\d [0-2]\d:[0-5]\d:[0-5]\d")
+
+MIN_NUMBER_SUFFIX = 7       # min. délka shodné koncovky dvou čísel
 _CHUNK = 1 << 20
 
+# Písmena, která tokenizer unicode61 nerozloží na základ + diakritiku
+_FOLD_MAP = str.maketrans({
+    "ß": "ss", "ẞ": "SS", "æ": "ae", "Æ": "AE", "ø": "o", "Ø": "O", "œ": "oe",
+    "Œ": "OE", "ð": "d", "Ð": "D", "þ": "th", "Þ": "TH", "ł": "l", "Ł": "L",
+    "đ": "d", "Đ": "D", "ħ": "h", "Ħ": "H", "ı": "i", "ŀ": "l", "Ŀ": "L",
+    "ŧ": "t", "Ŧ": "T", "ĸ": "k", "ŋ": "ng", "Ŋ": "NG",
+})
 
-# ── Normalizace ──────────────────────────────────────────────────────────────
 
-def num_key(n: str) -> str:
-    """Porovnávací klíč čísla: posledních 9 číslic (národní = mezinárodní tvar).
+# Text obsahuje znaky, které unicode61 (remove_diacritics) nesloží:
+# speciální písmena výše + řecké přízvuky (tonos, dialytika, polytonika)
+_NEEDS_FOLD = re.compile("[" + "".join(chr(c) for c in _FOLD_MAP) +
+                         "Ͱ-Ͽἀ-῿]")
 
-    Kratší čísla (servisní, zkrácená) se vrací celá; prázdný řetězec, pokud
-    hodnota neobsahuje aspoň 3 číslice (není to číslo).
+
+def needs_fold(s: str) -> bool:
+    return bool(s) and not s.isascii() and _NEEDS_FOLD.search(s) is not None
+
+
+def fold_text(s: str) -> str:
+    """Odstraní diakritiku i tam, kde to tokenizer neumí (ß, ø, ł, řecké
+    přízvuky…). Používá se pro doplňkovou kopii textu v indexu a pro dotaz,
+    takže „strasse“ najde „Straße“ a „Αθηνα“ najde „Αθήνα“."""
+    import unicodedata
+    s = s.translate(_FOLD_MAP)
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    # NFC znovu složí korejské slabiky (NFKD je rozkládá na jamo)
+    return unicodedata.normalize("NFC", s)
+
+
+# ── Telefonní čísla (nezávisle na zemi) ──────────────────────────────────────
+
+def norm_number(raw) -> str:
+    """Normalizuje telefonní číslo na číslice v mezinárodním tvaru.
+
+    * '+' nebo '00' na začátku = mezinárodní předvolba → odstraní se jen prefix,
+    * jedna úvodní '0' = národní (trunk) předvolba (UK, DE, FR, IT…) → odstraní se,
+    * jinak se číslo bere tak, jak je (CZ/SK/US bez předvolby).
+
+    Výsledek se porovnává přes shodu koncovky (viz numbers_match), takže
+    národní a mezinárodní tvar téhož čísla se shodují v jakékoli zemi.
+    Vrací '' pokud hodnota nemá aspoň 3 číslice.
     """
-    d = re.sub(r"[^0-9]", "", str(n or ""))
+    s = str(raw or "").strip()
+    d = re.sub(r"[^0-9]", "", s)
     if len(d) < 3:
         return ""
-    return d[-9:] if len(d) >= 9 else d
+    if s.startswith("+"):
+        n = d
+    elif d.startswith("00"):
+        n = d[2:]
+    elif d.startswith("0"):
+        n = d[1:]
+    else:
+        n = d
+    return n if len(n) >= 3 else ""
+
+
+def numbers_match(a: str, b: str) -> bool:
+    """Shodují se dvě normalizovaná čísla? (koncovka ≥ MIN_NUMBER_SUFFIX, nebo rovnost)"""
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    short, long_ = (a, b) if len(a) <= len(b) else (b, a)
+    return len(short) >= MIN_NUMBER_SUFFIX and long_.endswith(short)
 
 
 def _looks_like_number(v: str) -> bool:
@@ -77,8 +150,9 @@ def _looks_like_number(v: str) -> bool:
     digits = re.sub(r"\D", "", v)
     if not 3 <= len(digits) <= 15:
         return False
-    # Datum / čas typu 2025-01-01 nebo 12:30 – ne číslo
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}.*", v):
+    # Datum / čas typu 2025-01-01 nebo 12.03.2025 – ne číslo
+    if re.fullmatch(r"\d{4}[-/.]\d{1,2}[-/.]\d{1,2}.*", v) or \
+            re.fullmatch(r"\d{1,2}[./]\d{1,2}[./]\d{2,4}", v):
         return False
     return True
 
@@ -100,6 +174,8 @@ def parse_dt(value) -> Optional[str]:
     s = str(value).strip()
     if not s:
         return None
+    if _RE_ISO_DT.fullmatch(s):          # rychlá cesta – nejčastější formát
+        return s
     if s.isdigit() and len(s) in (10, 13):
         return parse_dt(int(s))
     s2 = s.replace("Z", "").split(".")[0].split("+")[0].strip()
@@ -113,21 +189,50 @@ def parse_dt(value) -> Optional[str]:
 
 # ── Entity (regex) ───────────────────────────────────────────────────────────
 
-_RE_EMAIL = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,24}\b")
+# Druhy entit; region = None → mezinárodní, jinak regionální detektor.
+ENTITY_KINDS: dict[str, Optional[str]] = {
+    "email": None, "url": None, "iban": None, "crypto": None,
+    "imei": None, "card": None, "ip": None,
+    "rc": "CZ/SK", "spz": "CZ",
+}
+
+_RE_EMAIL = re.compile(r"\b[\w.%+\-]+@[\w\-]+(?:\.[\w\-]+)*\.[^\W\d_]{2,24}\b")
 _RE_URL = re.compile(r"\b(?:https?://|www\.)[^\s\"'<>]{3,}", re.I)
-_RE_IBAN = re.compile(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?\b")
+_RE_IBAN = re.compile(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,8}(?: ?[A-Z0-9]{1,4})?\b")
 _RE_BTC = re.compile(r"\b(?:bc1[ac-hj-np-z02-9]{11,71}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})\b")
 _RE_ETH = re.compile(r"\b0x[a-fA-F0-9]{40}\b")
+_RE_IMEI_DASHED = re.compile(r"\b\d{2}-\d{6}-\d{6}-\d\b")
+_RE_IMEI = re.compile(r"\bIMEI\s*(?:\d\s*)?[:=#]?\s*(\d{15})\b|\b(\d{2}-\d{6}-\d{6}-\d)\b", re.I)
+# Karta nesmí sousedit s písmenem/číslicí (jinak by se našla uvnitř hashů)
+_RE_CARD = re.compile(r"(?<![\w\-])\d[\d \-]{11,22}\d(?![\w\-])")   # bez backtrackingu
+# Levné předfiltry – detektor se spustí jen když text může entitu obsahovat
+_PRE_LONG_DIGITS = re.compile(r"\d[\d \-]{11,}\d")
+_PRE_UPPER_DIGIT = re.compile(r"[A-Z]{2}\d{2}")
+_PRE_IP = re.compile(r"\d\.\d")
+_PRE_SPZ = re.compile(r"[1-9][A-Z]")
+_RE_IPV4 = re.compile(r"(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?![\d.])")
 _RE_RC = re.compile(r"\b(\d{2})(\d{2})(\d{2}) ?/ ?(\d{3,4})\b")
 # SPZ ČR: číslice + 2 znaky + 4 číslice; písmena G, O, Q, W se nepoužívají
 # (vyloučí i falešné nálezy typu „5GB 1024“).
 _RE_SPZ = re.compile(r"\b([1-9][A-FH-NPR-VX-Z][A-FH-NPR-VX-Z0-9]) ?(\d{4})\b")
 _RE_INTL_PHONE = re.compile(r"(?<![\w+])\+\d[\d \-]{7,17}\d\b")
 
-_IBAN_LEN = {"CZ": 24, "SK": 24, "DE": 22, "AT": 20, "PL": 28, "GB": 22,
-             "FR": 27, "IT": 27, "ES": 24, "NL": 18, "BE": 16, "CH": 21,
-             "HU": 28, "LT": 20, "LV": 21, "EE": 20, "SI": 19, "HR": 21,
-             "RO": 24, "BG": 22, "IE": 22, "PT": 25, "LU": 20, "UA": 29}
+# Délky IBAN podle země (registr SWIFT)
+_IBAN_LEN = {
+    "AD": 24, "AE": 23, "AL": 28, "AT": 20, "AZ": 28, "BA": 20, "BE": 16,
+    "BG": 22, "BH": 22, "BI": 27, "BR": 29, "BY": 28, "CH": 21, "CR": 22,
+    "CY": 28, "CZ": 24, "DE": 22, "DJ": 27, "DK": 18, "DO": 28, "EE": 20,
+    "EG": 29, "ES": 24, "FI": 18, "FK": 18, "FO": 18, "FR": 27, "GB": 22,
+    "GE": 22, "GI": 23, "GL": 18, "GR": 27, "GT": 28, "HR": 21, "HU": 28,
+    "IE": 22, "IL": 23, "IQ": 23, "IS": 26, "IT": 27, "JO": 30, "KW": 30,
+    "KZ": 20, "LB": 28, "LC": 32, "LI": 21, "LT": 20, "LU": 20, "LV": 21,
+    "LY": 25, "MC": 27, "MD": 24, "ME": 22, "MK": 19, "MN": 20, "MR": 27,
+    "MT": 31, "MU": 30, "NI": 28, "NL": 18, "NO": 15, "OM": 23, "PK": 24,
+    "PL": 28, "PS": 29, "PT": 25, "QA": 29, "RO": 24, "RS": 22, "RU": 33,
+    "SA": 24, "SC": 31, "SD": 18, "SE": 24, "SI": 19, "SK": 24, "SM": 27,
+    "SO": 23, "ST": 25, "SV": 28, "TL": 23, "TN": 24, "TR": 26, "UA": 29,
+    "VA": 22, "VG": 24, "XK": 20, "YE": 30,
+}
 
 
 def _iban_ok(s: str) -> bool:
@@ -139,8 +244,37 @@ def _iban_ok(s: str) -> bool:
     return int(num) % 97 == 1
 
 
+def _luhn_ok(digits: str) -> bool:
+    total, alt = 0, False
+    for ch in reversed(digits):
+        d = ord(ch) - 48
+        if alt:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+        alt = not alt
+    return total % 10 == 0
+
+
+def _card_ok(d: str) -> bool:
+    """Platební karta: délka + IIN prefix (Visa, Mastercard, Amex, …) + Luhn."""
+    n = len(d)
+    if not 13 <= n <= 19 or len(set(d)) < 4:
+        return False
+    p2, p4 = int(d[:2]), int(d[:4])
+    iin = (d[0] == "4" and n in (13, 16, 19)                 # Visa
+           or (51 <= p2 <= 55 or 2221 <= p4 <= 2720) and n == 16   # Mastercard
+           or p2 in (34, 37) and n == 15                     # Amex
+           or (d.startswith("6011") or d.startswith("65")) and n in (16, 19)  # Discover
+           or 3528 <= p4 <= 3589 and n in (16, 19)           # JCB
+           or p2 == 62 and 16 <= n <= 19                      # UnionPay
+           or d[:2] in ("50", "56", "57", "58", "67") and 12 < n <= 19)  # Maestro
+    return bool(iin) and _luhn_ok(d)
+
+
 def _rc_ok(m: re.Match) -> bool:
-    """Rodné číslo: platné datum + kontrola dělitelnosti 11 (u 10místných)."""
+    """Rodné číslo CZ/SK: platné datum + kontrola dělitelnosti 11 (u 10místných)."""
     yy, mm, dd, tail = (int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4))
     if mm > 70:
         mm -= 70
@@ -160,45 +294,80 @@ def _rc_ok(m: re.Match) -> bool:
     return base % 11 == 10 and tail[3] == "0"
 
 
-def extract_entities(text: str) -> list[tuple[str, str, str]]:
-    """Vrátí [(kind, value, norm)] nalezených entit v textu."""
+def extract_entities(text: str, kinds: Optional[set] = None) -> list[tuple[str, str, str]]:
+    """Vrátí [(kind, value, norm)] nalezených entit v textu.
+
+    kinds – omezí detektory (např. bez regionálních); None = všechny.
+    Druh 'phone' (mezinárodní číslo v textu) se vrací vždy.
+    """
     out: list[tuple[str, str, str]] = []
     if not text:
         return out
-    for m in _RE_EMAIL.finditer(text):
-        v = m.group(0).strip(".")
-        out.append(("email", v, v.lower()))
-    for m in _RE_URL.finditer(text):
-        v = m.group(0).rstrip(".,;:)]}")
-        norm = re.sub(r"^(https?://)?(www\.)?", "", v.lower()).rstrip("/")
-        out.append(("url", v, norm))
-    for m in _RE_IBAN.finditer(text):
-        # Regex může zachytit i následující číselnou skupinu (např. rok) –
-        # zkoušíme od nejdelší varianty a odebíráme skupiny zprava.
-        v = m.group(0)
-        while v:
-            if _iban_ok(v):
-                out.append(("iban", v, v.replace(" ", "").upper()))
-                break
-            v = v[:-1].rstrip()
-    for m in _RE_BTC.finditer(text):
-        v = m.group(0)
-        # base58 bez číslic/velkých písmen je spíš běžné slovo
-        if v.startswith("bc1") or (re.search(r"\d", v) and re.search(r"[A-Z]", v)
-                                   and re.search(r"[a-z]", v)):
-            out.append(("crypto", v, v))
-    for m in _RE_ETH.finditer(text):
-        out.append(("crypto", m.group(0), m.group(0).lower()))
-    for m in _RE_RC.finditer(text):
-        if _rc_ok(m):
-            norm = m.group(1) + m.group(2) + m.group(3) + "/" + m.group(4)
-            out.append(("rc", m.group(0), norm))
-    for m in _RE_SPZ.finditer(text):
-        out.append(("spz", m.group(0), m.group(1) + m.group(2)))
-    for m in _RE_INTL_PHONE.finditer(text):
-        k = num_key(m.group(0))
-        if len(k) == 9:
-            out.append(("phone", m.group(0), k))
+
+    def on(k):
+        return kinds is None or k in kinds
+
+    long_digits = _PRE_LONG_DIGITS.search(text) is not None
+    upper_digit = _PRE_UPPER_DIGIT.search(text) is not None
+
+    if on("email") and "@" in text:
+        for m in _RE_EMAIL.finditer(text):
+            v = m.group(0).strip(".")
+            out.append(("email", v, v.lower()))
+    if on("url") and ("://" in text or "www." in text or "WWW." in text):
+        for m in _RE_URL.finditer(text):
+            v = m.group(0).rstrip(".,;:)]}")
+            norm = re.sub(r"^(https?://)?(www\.)?", "", v.lower()).rstrip("/")
+            out.append(("url", v, norm))
+    if on("iban") and upper_digit:
+        for m in _RE_IBAN.finditer(text):
+            # Regex může zachytit i následující číselnou skupinu (např. rok) –
+            # zkoušíme od nejdelší varianty a odebíráme znaky zprava.
+            v = m.group(0)
+            while v:
+                if _iban_ok(v):
+                    out.append(("iban", v, v.replace(" ", "").upper()))
+                    break
+                v = v[:-1].rstrip()
+    if on("crypto"):
+        for m in _RE_BTC.finditer(text):
+            v = m.group(0)
+            # base58 bez číslic/velkých/malých písmen je spíš běžné slovo
+            if v.startswith("bc1") or (re.search(r"\d", v) and re.search(r"[A-Z]", v)
+                                       and re.search(r"[a-z]", v)):
+                out.append(("crypto", v, v))
+        for m in _RE_ETH.finditer(text):
+            out.append(("crypto", m.group(0), m.group(0).lower()))
+    if on("imei") and long_digits and ("imei" in text.lower() or _RE_IMEI_DASHED.search(text)):
+        for m in _RE_IMEI.finditer(text):
+            d = re.sub(r"\D", "", m.group(1) or m.group(2))
+            if len(d) == 15 and _luhn_ok(d):
+                out.append(("imei", d, d))
+    if on("card") and long_digits:
+        for m in _RE_CARD.finditer(text):
+            d = re.sub(r"\D", "", m.group(0))
+            if 13 <= len(d) <= 19 and _card_ok(d):
+                out.append(("card", m.group(0).strip(), d))
+    if on("ip") and _PRE_IP.search(text):
+        for m in _RE_IPV4.finditer(text):
+            v = m.group(0)
+            octets = v.split(".")
+            # „1.2.3.4“ apod. bývá číslo verze, ne adresa
+            if all(len(o) == 1 for o in octets) or octets[0] == "0":
+                continue
+            out.append(("ip", v, v))
+    if on("rc") and "/" in text:
+        for m in _RE_RC.finditer(text):
+            if _rc_ok(m):
+                norm = m.group(1) + m.group(2) + m.group(3) + "/" + m.group(4)
+                out.append(("rc", m.group(0), norm))
+    if on("spz") and _PRE_SPZ.search(text):
+        for m in _RE_SPZ.finditer(text):
+            out.append(("spz", m.group(0), m.group(1) + m.group(2)))
+    for m in (_RE_INTL_PHONE.finditer(text) if "+" in text else ()):
+        n = norm_number(m.group(0))
+        if len(n) >= 8:
+            out.append(("phone", m.group(0), n))
     return out
 
 
@@ -256,8 +425,9 @@ def row_key(rec: dict) -> str:
     return hashlib.sha1(canon.encode("utf-8")).hexdigest()
 
 
-def analyze_record(rec: dict) -> tuple[str, Optional[str], list, list]:
-    """Vrátí (fts_text, dt, [(num_key, raw)], [(kind, value, norm)])."""
+def analyze_record(rec: dict, kinds: Optional[set] = None
+                   ) -> tuple[str, Optional[str], list, list]:
+    """Vrátí (fts_text, dt, [(norm_number, raw)], [(kind, value, norm)])."""
     parts: list[str] = []
     numbers: dict[str, str] = {}
     dt: Optional[str] = None
@@ -266,26 +436,29 @@ def analyze_record(rec: dict) -> tuple[str, Optional[str], list, list]:
         if isinstance(v, bool):
             continue
         sv = str(v)
-        if k.lower() == "path" or k.lower().endswith("_path"):
+        kl = k.lower()
+        if kl == "path" or kl.endswith("_path"):
             parts.append(sv.replace("/", " ").replace("\\", " "))
         parts.append(sv)
-        kl = k.lower()
         if kl in _DATE_KEYS and _DATE_KEYS.index(kl) < date_rank:
             p = parse_dt(v)
             if p:
                 dt, date_rank = p, _DATE_KEYS.index(kl)
         if _NUMBER_KEYS.search(kl) and isinstance(v, (str, int)) and \
                 _looks_like_number(sv):
-            nk = num_key(sv)
-            if nk:
-                numbers.setdefault(nk, sv)
+            n = norm_number(sv)
+            if n:
+                numbers.setdefault(n, sv)
     text = "\n".join(parts)
-    entities = extract_entities(text)
+    entities = extract_entities(text, kinds)
     for kind, raw, norm in entities:
         if kind == "phone":
             numbers.setdefault(norm, raw)
     entities = [e for e in entities if e[0] != "phone"]
-    # Normalizovaná čísla do FTS textu → hledání "777123456" najde i "+420 777 123 456"
+    # Doplňková „složená“ kopie textu pro písmena, která tokenizer nerozloží
+    if needs_fold(text):
+        text += "\n" + fold_text(text)
+    # Normalizovaná čísla do FTS textu → hledání číslic najde i formátované tvary
     if numbers:
         text += "\n" + " ".join(numbers)
     return text, dt, list(numbers.items()), list(dict.fromkeys(entities))
@@ -316,11 +489,15 @@ CREATE INDEX IF NOT EXISTS ix_records_key ON records(row_key);
 CREATE INDEX IF NOT EXISTS ix_records_dt ON records(dt);
 CREATE VIRTUAL TABLE IF NOT EXISTS records_fts USING fts5(
     text, tokenize = 'unicode61 remove_diacritics 2', prefix = '2 3');
+CREATE VIRTUAL TABLE IF NOT EXISTS records_tri USING fts5(
+    text, tokenize = 'trigram remove_diacritics 1');
 CREATE TABLE IF NOT EXISTS numbers(
     record_id INTEGER NOT NULL REFERENCES records(id) ON DELETE CASCADE,
-    num_key TEXT NOT NULL, raw TEXT
+    norm TEXT NOT NULL,      -- normalizované číslice (mezinárodní tvar)
+    rev TEXT NOT NULL,       -- norm pozpátku → shoda koncovky = shoda prefixu
+    raw TEXT
 );
-CREATE INDEX IF NOT EXISTS ix_numbers_key ON numbers(num_key);
+CREATE INDEX IF NOT EXISTS ix_numbers_rev ON numbers(rev);
 CREATE INDEX IF NOT EXISTS ix_numbers_rec ON numbers(record_id);
 CREATE TABLE IF NOT EXISTS entities(
     record_id INTEGER NOT NULL REFERENCES records(id) ON DELETE CASCADE,
@@ -339,8 +516,12 @@ def index_path(output_dir: str) -> str:
     return os.path.join(case_dir(output_dir), INDEX_NAME)
 
 
+def index_exists(output_dir: str) -> bool:
+    return os.path.isfile(index_path(output_dir))
+
+
 def _connect(path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
@@ -358,6 +539,7 @@ def _open_db(output_dir: str) -> sqlite3.Connection:
     except sqlite3.Error:
         pass
     if ver is not None and ver != SCHEMA_VERSION:
+        # Starší schéma – index je odvozený, takže ho prostě postavíme znovu
         conn.close()
         for suffix in ("", "-wal", "-shm"):
             try:
@@ -391,23 +573,24 @@ def list_source_files(output_dir: str) -> list[str]:
 
 
 def _delete_file_rows(conn: sqlite3.Connection, file_id: int) -> None:
-    conn.execute("DELETE FROM records_fts WHERE rowid IN "
-                 "(SELECT id FROM records WHERE file_id=?)", (file_id,))
-    conn.execute("DELETE FROM numbers WHERE record_id IN "
-                 "(SELECT id FROM records WHERE file_id=?)", (file_id,))
-    conn.execute("DELETE FROM entities WHERE record_id IN "
-                 "(SELECT id FROM records WHERE file_id=?)", (file_id,))
+    sub = "(SELECT id FROM records WHERE file_id=?)"
+    conn.execute(f"DELETE FROM records_fts WHERE rowid IN {sub}", (file_id,))
+    conn.execute(f"DELETE FROM records_tri WHERE rowid IN {sub}", (file_id,))
+    conn.execute(f"DELETE FROM numbers WHERE record_id IN {sub}", (file_id,))
+    conn.execute(f"DELETE FROM entities WHERE record_id IN {sub}", (file_id,))
     conn.execute("DELETE FROM records WHERE file_id=?", (file_id,))
 
 
 def build_index(output_dir: str,
                 progress: Optional[Callable[[int, int, str], None]] = None,
                 cancel: Optional[Callable[[], bool]] = None,
-                force: bool = False) -> dict:
+                force: bool = False,
+                kinds: Optional[set] = None) -> dict:
     """Vytvoří / aktualizuje index. Vrací statistiku.
 
     progress(done, total, filename) se volá po každém souboru.
     cancel() → True přeruší indexaci (už zpracované soubory zůstanou).
+    kinds – povolené druhy entit (None = všechny, viz ENTITY_KINDS).
     """
     stats = {"files": 0, "indexed": 0, "unchanged": 0, "removed": 0,
              "records": 0, "errors": [], "cancelled": False}
@@ -447,7 +630,7 @@ def build_index(output_dir: str,
                     stats["records"] += row["records"] or 0
                     continue
                 n = _index_file(conn, name, path, st, sha,
-                                row["id"] if row is not None else None)
+                                row["id"] if row is not None else None, kinds)
                 stats["indexed"] += 1
                 stats["records"] += n
             except Exception as e:      # poškozený soubor nesmí zastavit zbytek
@@ -472,7 +655,8 @@ def build_index(output_dir: str,
 
 
 def _index_file(conn: sqlite3.Connection, name: str, path: str,
-                st: os.stat_result, sha: str, file_id: Optional[int]) -> int:
+                st: os.stat_result, sha: str, file_id: Optional[int],
+                kinds: Optional[set]) -> int:
     with open(path, encoding="utf-8", errors="replace") as f:
         data = json.load(f)
     if file_id is not None:
@@ -486,7 +670,7 @@ def _index_file(conn: sqlite3.Connection, name: str, path: str,
 
     count = 0
     for section, idx, rec in iter_records(data):
-        text, dt, numbers, entities = analyze_record(rec)
+        text, dt, numbers, entities = analyze_record(rec, kinds)
         rj = json.dumps(rec, ensure_ascii=False, default=str)
         cur = conn.execute(
             "INSERT INTO records(file_id, section, idx, row_key, dt, json) "
@@ -494,9 +678,11 @@ def _index_file(conn: sqlite3.Connection, name: str, path: str,
             (file_id, section, idx, row_key(rec), dt, rj))
         rid = cur.lastrowid
         conn.execute("INSERT INTO records_fts(rowid, text) VALUES(?,?)", (rid, text))
+        if _NOSPACE_RE.search(text):
+            conn.execute("INSERT INTO records_tri(rowid, text) VALUES(?,?)", (rid, text))
         if numbers:
-            conn.executemany("INSERT INTO numbers VALUES(?,?,?)",
-                             [(rid, k, raw) for k, raw in numbers])
+            conn.executemany("INSERT INTO numbers VALUES(?,?,?,?)",
+                             [(rid, n, n[::-1], raw) for n, raw in numbers])
         if entities:
             conn.executemany("INSERT INTO entities VALUES(?,?,?,?)",
                              [(rid, kind, v, norm) for kind, v, norm in entities])
@@ -510,13 +696,16 @@ def _index_file(conn: sqlite3.Connection, name: str, path: str,
 # ── Dotazy ───────────────────────────────────────────────────────────────────
 
 def fts_query(text: str) -> str:
-    """Převede uživatelský text na bezpečný FTS5 dotaz.
+    """Převede uživatelský text na bezpečný FTS5 dotaz (tokenizer unicode61).
 
     Slova se spojí AND, každé jako prefix ("nov" najde "Novák"). Text
     v uvozovkách je fráze. Speciální znaky FTS se neinterpretují.
     """
     terms: list[str] = []
-    for m in re.finditer(r'"([^"]+)"|(\S+)', text or ""):
+    text = text or ""
+    if needs_fold(text):
+        text = fold_text(text)
+    for m in re.finditer(r'"([^"]+)"|(\S+)', text):
         if m.group(1):
             words = re.findall(r"\w+", m.group(1))
             if words:
@@ -525,6 +714,35 @@ def fts_query(text: str) -> str:
             for w in re.findall(r"\w+", m.group(2)):
                 terms.append(f'"{w}"*')
     return " AND ".join(terms)
+
+
+def _tri_terms(text: str) -> list[str]:
+    """Hledané řetězce pro trigramový index (fráze v uvozovkách = jeden řetězec)."""
+    out = []
+    for m in re.finditer(r'"([^"]+)"|(\S+)', text or ""):
+        s = (m.group(1) or m.group(2)).strip()
+        if s:
+            out.append(s)
+    return out
+
+
+def _like_escape(s: str) -> str:
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _number_condition(n: str) -> tuple[str, list]:
+    """SQL podmínka nad tabulkou numbers (alias n) pro shodu koncovky s číslem n."""
+    rev = n[::-1]
+    if len(n) < MIN_NUMBER_SUFFIX:
+        return "n.rev = ?", [rev]
+    # uložené číslo je delší nebo stejné (končí na n) → rev začíná na rev(n)
+    conds, params = ["(n.rev >= ? AND n.rev < ?)"], [rev, rev + ":"]
+    # uložené číslo je kratší (n končí na něj) → rev je prefixem rev(n)
+    prefixes = [rev[:k] for k in range(MIN_NUMBER_SUFFIX, len(rev))]
+    if prefixes:
+        conds.append("n.rev IN (%s)" % ",".join("?" * len(prefixes)))
+        params += prefixes
+    return "(" + " OR ".join(conds) + ")", params
 
 
 class SearchIndex:
@@ -564,13 +782,14 @@ class SearchIndex:
         """Fulltext + volitelné filtry.
 
         * dotaz, který vypadá jako telefonní číslo → hledá se v tabulce
-          `numbers` (libovolný tvar čísla), řazeno podle času,
+          `numbers` (libovolný tvar, libovolná země), řazeno podle času,
+        * dotaz s písmem bez mezer (CJK, thajština…) → trigramový index,
         * jinak fulltext FTS5, řazeno podle relevance (bm25),
         * prázdný dotaz → všechny záznamy (dle filtrů), řazeno podle času.
 
         Výsledek: [{id, file, section, idx, row_key, dt, record, snippet}]
         """
-        sql, params, q = self._query(text, files, date_from, date_to, count=False)
+        sql, params = self._query(text, files, date_from, date_to, count=False)
         if sql is None:
             return []
         sql += " LIMIT ? OFFSET ?"
@@ -580,22 +799,24 @@ class SearchIndex:
     def count(self, text: str = "", files: Optional[Iterable[str]] = None,
               date_from: Optional[str] = None, date_to: Optional[str] = None) -> int:
         """Počet záznamů odpovídajících dotazu (stejná pravidla jako search)."""
-        sql, params, _q = self._query(text, files, date_from, date_to, count=True)
+        sql, params = self._query(text, files, date_from, date_to, count=True)
         if sql is None:
             return 0
         return self.conn.execute(sql, params).fetchone()[0]
 
     def _query(self, text, files, date_from, date_to, count: bool):
-        """Sestaví SQL pro search/count → (sql | None, params, fts_query)."""
+        """Sestaví SQL pro search/count → (sql | None, params)."""
         text = (text or "").strip()
-        nk = num_key(text) if text and _looks_like_number(text) else ""
-        q = "" if nk else fts_query(text)
-        if text and not q and not nk:
-            return None, [], ""     # dotaz bez slov (jen interpunkce) – nic nehledat
+        num = norm_number(text) if text and _looks_like_number(text) else ""
+        tri = bool(text) and not num and bool(_NOSPACE_RE.search(text))
+        q = "" if (num or tri) else fts_query(text)
+        if text and not (q or num or tri):
+            return None, []         # dotaz bez slov (jen interpunkce) – nic nehledat
 
         cols = ("COUNT(*)" if count else
                 "r.id, f.name AS file, r.section, r.idx, r.row_key, r.dt, r.json")
         where, params = [], []
+        order = "ORDER BY r.dt IS NULL, r.dt, r.id"
         if q:
             if not count:
                 cols += ", snippet(records_fts, 0, '[', ']', '…', 12) AS snippet"
@@ -606,14 +827,29 @@ class SearchIndex:
             where.append("records_fts MATCH ?")
             params.append(q)
             order = "ORDER BY records_fts.rank"
-        elif nk:
-            sql = (f"SELECT {cols} FROM records r JOIN files f ON f.id = r.file_id ")
-            where.append("r.id IN (SELECT record_id FROM numbers WHERE num_key = ?)")
-            params.append(nk)
-            order = "ORDER BY r.dt IS NULL, r.dt, r.id"
+        elif tri:
+            terms = _tri_terms(text)
+            if all(len(s) >= 3 for s in terms):
+                if not count:
+                    cols += ", snippet(records_tri, 0, '[', ']', '…', 12) AS snippet"
+                where.append("records_tri MATCH ?")
+                params.append(" AND ".join('"' + s.replace('"', '""') + '"' for s in terms))
+                order = "ORDER BY records_tri.rank"
+            else:
+                # Trigram potřebuje ≥3 znaky – kratší (např. 2znaková CJK slova) přes LIKE
+                for s in terms:
+                    where.append("records_tri.text LIKE ? ESCAPE '\\'")
+                    params.append("%" + _like_escape(s) + "%")
+            sql = (f"SELECT {cols} FROM records_tri "
+                   "JOIN records r ON r.id = records_tri.rowid "
+                   "JOIN files f ON f.id = r.file_id ")
+        elif num:
+            cond, p = _number_condition(num)
+            sql = f"SELECT {cols} FROM records r JOIN files f ON f.id = r.file_id "
+            where.append(f"r.id IN (SELECT n.record_id FROM numbers n WHERE {cond})")
+            params += p
         else:
-            sql = (f"SELECT {cols} FROM records r JOIN files f ON f.id = r.file_id ")
-            order = "ORDER BY r.dt IS NULL, r.dt, r.id"
+            sql = f"SELECT {cols} FROM records r JOIN files f ON f.id = r.file_id "
         if files:
             files = list(files)
             where.append("f.name IN (%s)" % ",".join("?" * len(files)))
@@ -628,7 +864,7 @@ class SearchIndex:
             sql += "WHERE " + " AND ".join(where) + " "
         if not count:
             sql += order
-        return sql, params, q
+        return sql, params
 
     @staticmethod
     def _row(r: sqlite3.Row) -> dict:
@@ -642,24 +878,71 @@ class SearchIndex:
 
     def by_number(self, number: str, limit: int = 1000) -> list[dict]:
         """Všechny záznamy obsahující dané telefonní číslo (v libovolném tvaru)."""
-        k = num_key(number)
-        if not k:
+        n = norm_number(number)
+        if not n:
             return []
-        sql = ("SELECT DISTINCT r.id, f.name AS file, r.section, r.idx, r.row_key, "
-               "r.dt, r.json FROM numbers n JOIN records r ON r.id = n.record_id "
-               "JOIN files f ON f.id = r.file_id WHERE n.num_key = ? "
+        cond, params = _number_condition(n)
+        sql = ("SELECT r.id, f.name AS file, r.section, r.idx, r.row_key, r.dt, r.json "
+               "FROM records r JOIN files f ON f.id = r.file_id "
+               f"WHERE r.id IN (SELECT n.record_id FROM numbers n WHERE {cond}) "
                "ORDER BY r.dt IS NULL, r.dt LIMIT ?")
-        return [self._row(r) for r in self.conn.execute(sql, (k, int(limit)))]
+        return [self._row(r) for r in self.conn.execute(sql, params + [int(limit)])]
 
-    def top_numbers(self, limit: int = 50) -> list[dict]:
-        """Nejčastější čísla napříč zdroji: [{num_key, raw, count, files}]."""
-        sql = ("SELECT n.num_key, MIN(n.raw) AS raw, COUNT(DISTINCT n.record_id) AS cnt, "
-               "GROUP_CONCAT(DISTINCT f.name) AS files FROM numbers n "
-               "JOIN records r ON r.id = n.record_id JOIN files f ON f.id = r.file_id "
-               "GROUP BY n.num_key ORDER BY cnt DESC LIMIT ?")
-        return [{"num_key": r[0], "raw": r[1], "count": r[2],
-                 "files": (r[3] or "").split(",")}
-                for r in self.conn.execute(sql, (int(limit),))]
+    def top_numbers(self, limit: int = 100) -> list[dict]:
+        """Nejčastější čísla napříč zdroji: [{number, raw, count, files}].
+
+        Různé tvary téhož čísla (národní/mezinárodní) se sloučí podle shody
+        koncovky. `number` je nejúplnější (nejdelší) normalizovaný tvar.
+        """
+        rows = self.conn.execute(
+            "SELECT n.norm, n.raw, n.record_id, f.name FROM numbers n "
+            "JOIN records r ON r.id = n.record_id JOIN files f ON f.id = r.file_id"
+        ).fetchall()
+        if not rows:
+            return []
+        norms = {r[0] for r in rows}
+        parent = {n: n for n in norms}
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        # Delší čísla, která končí daným (kratším) číslem
+        longer: dict[str, list[str]] = {}
+        for n in norms:
+            for k in range(MIN_NUMBER_SUFFIX, len(n)):
+                suf = n[-k:]
+                if suf in parent:
+                    longer.setdefault(suf, []).append(n)
+        # Kratší tvar se sloučí jen JEDNOZNAČNĚ: všichni delší kandidáti musí být
+        # tvary jednoho čísla (koncovkami toho nejdelšího). Nejednoznačné krátké
+        # číslo (např. 12345678 vs. +45 12345678 i +82 10 1234 5678) zůstane
+        # samostatně – různá zahraniční čísla se přes něj nikdy nespojí.
+        for short, cands in longer.items():
+            top = max(cands, key=len)
+            if all(top.endswith(c) for c in cands):
+                for c in cands + [short]:
+                    a, b = find(top), find(c)
+                    if a != b:
+                        parent[b] = a
+        groups: dict[str, dict] = {}
+        for norm, raw, rid, fname in rows:
+            g = groups.setdefault(find(norm), {"norms": set(), "raws": {}, "recs": set(),
+                                               "files": set()})
+            g["norms"].add(norm)
+            g["raws"][norm] = raw
+            g["recs"].add(rid)
+            g["files"].add(fname)
+        out = []
+        for g in groups.values():
+            best = max(g["norms"], key=lambda x: (len(x), x))
+            out.append({"number": best, "raw": g["raws"].get(best, best),
+                        "count": len(g["recs"]), "files": sorted(g["files"]),
+                        "variants": sorted(g["norms"])})
+        out.sort(key=lambda x: (-x["count"], x["number"]))
+        return out[:limit]
 
     def entity_summary(self) -> dict[str, int]:
         """Počet unikátních entit podle druhu."""
