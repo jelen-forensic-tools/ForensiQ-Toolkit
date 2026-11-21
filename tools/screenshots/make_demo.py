@@ -1,14 +1,14 @@
-"""Vygeneruje FIKTIVNÍ ukázkový případ pro screenshoty ForenziQ.
+"""Generate a FICTITIOUS demo case for the ForenziQ screenshots.
 
-Všechna data jsou vymyšlená:
-  * telefonní čísla z rozsahů vyhrazených pro fikci (UK 07700 900xxx,
+All data is made up:
+  * phone numbers from ranges reserved for fiction (UK 07700 900xxx,
     US 555-01xx, AU 0491 570 xxx),
-  * e-maily a weby na doménách example.com / example.org / example.net (RFC 2606),
-  * IP adresy z dokumentačních rozsahů 192.0.2.0/24 a 198.51.100.0/24 (RFC 5737),
-  * IBAN DE89 3704 0044 0532 0130 00 = oficiální příklad z normy,
-  * BTC bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4 = testovací vektor BIP-173,
-  * IMEI 490154203237518 = běžně uváděný ukázkový IMEI,
-  * fotky = generované abstraktní obrázky.
+  * e-mails and websites on example.com / example.org / example.net (RFC 2606),
+  * IP addresses from the documentation ranges 192.0.2.0/24 and 198.51.100.0/24 (RFC 5737),
+  * IBAN DE89 3704 0044 0532 0130 00 = the official example from the standard,
+  * BTC bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4 = BIP-173 test vector,
+  * IMEI 490154203237518 = a commonly used sample IMEI,
+  * photos = generated abstract images.
 """
 import json
 import os

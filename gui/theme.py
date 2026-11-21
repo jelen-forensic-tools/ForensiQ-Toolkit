@@ -1,13 +1,13 @@
 """
-gui/theme.py — jednotný vzhled celé aplikace (barvy, písma, rozměry, komponenty).
+gui/theme.py — unified look of the whole application (colours, fonts, sizes, components).
 
-Pravidla:
-  • Každý panel má nahoře jeden toolbar (card) a pod ním obsah.
-  • Hlavní akce panelu = zelené tlačítko (primary), zastavení = červené (danger),
-    vše ostatní = tmavé sekundární tlačítko. Tyrkysová (ACCENT) jen pro aktivní
-    stav, nadpisy sekcí a zaškrtávátka — ne pro tlačítka.
-  • Všechna tlačítka v toolbarech mají stejnou výšku BTN_H.
-  • Log vlevo, seznam modulů vpravo — vždy stejná komponenta.
+Rules:
+  • Every panel has one toolbar (card) at the top and its content below.
+  • The panel's main action = green button (primary), stop = red (danger),
+    everything else = dark secondary button. Cyan (ACCENT) only for the active
+    state, section titles and check boxes — never for buttons.
+  • All toolbar buttons have the same height BTN_H.
+  • Log on the left, module list on the right — always the same component.
 """
 from __future__ import annotations
 
@@ -45,29 +45,29 @@ BTN_SECONDARY_HOVER = "#3a3a5a"
 BTN_DISABLED        = "#23233a"
 TEXT_DIM_BTN        = "#6a6a80"
 
-# ── Rozměry ───────────────────────────────────────────────────────────────────
+# ── Sizes ─────────────────────────────────────────────────────────────────────
 RADIUS_CARD = 12
 RADIUS_ITEM = 10
-WRAP_CARD   = 230   # pevné zalomení textu v kartách modulů (bez auto_wrap)
+WRAP_CARD   = 230   # fixed text wrapping in module cards (no auto_wrap)
 RADIUS_BTN  = 8
-BTN_H       = 36      # všechna tlačítka v toolbarech
-BTN_H_SMALL = 28      # malá tlačítka uvnitř karet (Vše / Nic, …)
-PAD         = 16      # vnitřní odsazení karet
-GAP         = 12      # mezera mezi kartami
+BTN_H       = 36      # all toolbar buttons
+BTN_H_SMALL = 28      # small buttons inside cards (All / None, …)
+PAD         = 16      # inner card padding
+GAP         = 12      # gap between cards
 
 
-# ── Písma (lazy – CTkFont potřebuje existující root) ──────────────────────────
-def f_title():   return ctk.CTkFont(size=15, weight="bold")   # nadpis karty
-def f_section(): return ctk.CTkFont(size=12, weight="bold")   # nadpis sekce
+# ── Fonts (lazy – CTkFont needs an existing root) ─────────────────────────────
+def f_title():   return ctk.CTkFont(size=15, weight="bold")   # card title
+def f_section(): return ctk.CTkFont(size=12, weight="bold")   # section title
 def f_body():    return ctk.CTkFont(size=12)
 def f_bold():    return ctk.CTkFont(size=13, weight="bold")
 def f_small():   return ctk.CTkFont(size=11)
 def f_mono():    return ctk.CTkFont(family="Consolas", size=11)
 
 
-# ── Tlačítka ──────────────────────────────────────────────────────────────────
+# ── Buttons ───────────────────────────────────────────────────────────────────
 class StatefulButton(ctk.CTkButton):
-    """CTkButton, který v neaktivním stavu zešedne (barevná tlačítka jinak vypadají vybledle)."""
+    """CTkButton that greys out when disabled (coloured buttons would otherwise just look faded)."""
 
     def __init__(self, *a, **kw):
         self._active_fg = kw.get("fg_color")
@@ -107,48 +107,48 @@ def _btn(parent, text, command, fg, hover, *, width=None, height=BTN_H,
 
 
 def primary_button(parent, text, command=None, width=150, **kw):
-    """Hlavní akce panelu (Spustit, Analyzovat, Porovnat, Načíst…)."""
+    """The panel's main action (Start, Analyze, Compare, Load…)."""
     kw.setdefault("font", f_bold())
     return _btn(parent, text, command, BTN_PRIMARY, BTN_PRIMARY_HOVER,
                 width=width, **kw)
 
 
 def danger_button(parent, text, command=None, width=100, **kw):
-    """Zastavení / destruktivní akce."""
+    """Stop / destructive action."""
     kw.setdefault("font", f_bold())
     return _btn(parent, text, command, BTN_DANGER, BTN_DANGER_HOVER,
                 width=width, **kw)
 
 
 def secondary_button(parent, text, command=None, width=130, **kw):
-    """Vedlejší akce (výběr souboru, export, otevřít složku…)."""
+    """Secondary action (choose file, export, open folder…)."""
     return _btn(parent, text, command, BTN_SECONDARY, BTN_SECONDARY_HOVER,
                 width=width, **kw)
 
 
 def icon_button(parent, text, command=None, **kw):
-    """Čtvercové tlačítko s ikonou (↻, 📂) – stejná výška jako ostatní."""
+    """Square icon button (↻, 📂) – same height as the others."""
     kw.setdefault("font", ctk.CTkFont(size=14))
     return _btn(parent, text, command, BTN_SECONDARY, BTN_SECONDARY_HOVER,
                 width=BTN_H, **kw)
 
 
 def small_button(parent, text, command=None, width=70, **kw):
-    """Malé tlačítko v záhlaví seznamů (Vše / Nic)."""
+    """Small button in list headers (All / None)."""
     kw.setdefault("font", f_small())
     return _btn(parent, text, command, BTN_SECONDARY, BTN_SECONDARY_HOVER,
                 width=width, height=BTN_H_SMALL, **kw)
 
 
 def set_running(start_btn, stop_btn, running: bool):
-    """Jednotné přepnutí stavu Spustit/Zastavit."""
+    """Uniform Start/Stop state switching."""
     if start_btn is not None:
         start_btn.configure(state="disabled" if running else "normal")
     if stop_btn is not None:
         stop_btn.configure(state="normal" if running else "disabled")
 
 
-# ── Karty a popisky ───────────────────────────────────────────────────────────
+# ── Cards and labels ───────────────────────────────────────────────────────────
 def card(parent, **kw):
     kw.setdefault("fg_color", BG_CARD)
     kw.setdefault("corner_radius", RADIUS_CARD)
@@ -161,13 +161,13 @@ def section_label(parent, text, color=ACCENT):
 
 
 def field_label(parent, text):
-    """Popisek vstupního pole v toolbaru (Zařízení:, Host:, …)."""
+    """Label of an input field in a toolbar (Device:, Host:, …)."""
     return ctk.CTkLabel(parent, text=text, font=f_body(),
                         text_color=TEXT_MUTED, anchor="w")
 
 
 def hint_label(parent, text="", color=TEXT_MUTED, ref=None, offset: int = 0, **kw):
-    """Šedý informační text; zalamuje se podle šířky `ref` (výchozí rodič) minus offset."""
+    """Grey informational text; wraps to the width of `ref` (default: parent) minus offset."""
     lbl = ctk.CTkLabel(parent, text=text, font=f_small(), text_color=color,
                        anchor="w", justify="left", wraplength=200, **kw)
     auto_wrap(lbl, ref if ref is not None else parent, offset)
@@ -176,9 +176,9 @@ def hint_label(parent, text="", color=TEXT_MUTED, ref=None, offset: int = 0, **k
 
 def auto_wrap(label, ref, offset: int = 0):
     """
-    Nastaví wraplength labelu podle šířky referenčního widgetu (karty / řádku),
-    takže text se zalomí místo uříznutí. `offset` = místo, které v ref zabírají
-    ostatní prvky (ikona, checkbox, odsazení) v logických px.
+    Set a label's wraplength from the width of a reference widget (card / row),
+    so text wraps instead of being cut off. `offset` = space taken in ref by
+    other elements (icon, check box, padding) in logical px.
     """
     def _on_cfg(e, _l=label):
         try:
@@ -199,7 +199,7 @@ def separator(parent):
 
 
 def checkbox(parent, variable, text="", accent=ACCENT, **kw):
-    """Zaškrtávátko – vždy stejná velikost; bez textu má jen šířku boxu."""
+    """Check box – always the same size; without text it is only as wide as the box."""
     opts = dict(text=text, variable=variable, checkbox_width=22, checkbox_height=22,
                 fg_color=accent, hover_color=accent, checkmark_color="#000",
                 font=f_body())
@@ -212,45 +212,45 @@ def checkbox(parent, variable, text="", accent=ACCENT, **kw):
 # ── Toolbar ───────────────────────────────────────────────────────────────────
 class Toolbar(ctk.CTkFrame):
     """
-    Jednotný horní pruh panelu – VŽDY jedna řada pevné výšky + tenký spodní proužek.
+    Unified top bar of a panel – ALWAYS one row of fixed height + a thin bottom strip.
 
         ┌──────────────────────────────────────────────────────────────────┐
-        │ [vstupy / výběr ……]      [stav ……]          [ Primary ] [ Stop ] │
-        │ ────────────────────── progress (nebo prázdný proužek) ────────── │
+        │ [inputs / selection ……]   [status ……]       [ Primary ] [ Stop ] │
+        │ ──────────────────────── progress (or an empty strip) ──────────── │
         └──────────────────────────────────────────────────────────────────┘
 
-    • self.source  – levý blok (vstupy, výběr souboru, combo – smí se roztáhnout)
-    • self.info    – prostřední blok pro stavový text (zarovnaný vpravo u akcí)
-    • self.actions – pravý blok s akčními tlačítky (Primary/Stop)
-    • self.progress – progress bar (jen když progress=True; jinak prázdné místo
-      stejné výšky, aby všechny toolbary byly stejně vysoké)
+    • self.source  – left block (inputs, file selection, combo – may expand)
+    • self.info    – middle block for status text (aligned right, next to actions)
+    • self.actions – right block with action buttons (Primary/Stop)
+    • self.progress – progress bar (only when progress=True; otherwise empty space
+      of the same height so all toolbars are equally tall)
 
-    Popisný hint do toolbaru NEPATŘÍ – patří jako první řádek do logu.
+    A descriptive hint does NOT belong in the toolbar – it goes to the log as the first line.
     """
 
     def __init__(self, master, source: bool = True, progress: bool = False, **kw):
-        # Pozn.: `source` je ponechán kvůli zpětné kompatibilitě; source/info/actions
-        # se tvoří vždy. Popisný hint patří do logu, ne do toolbaru.
+        # Note: `source` is kept for backward compatibility; source/info/actions
+        # are always created. A descriptive hint belongs in the log, not the toolbar.
         super().__init__(master, fg_color=BG_CARD, corner_radius=RADIUS_CARD, **kw)
         self.grid_columnconfigure(0, weight=1)
 
-        # ── Hlavní řada – jedna řada, výška daná tlačítky (BTN_H) ──
+        # ── Main row – a single row, height given by the buttons (BTN_H) ──
         main = ctk.CTkFrame(self, fg_color="transparent")
         main.grid(row=0, column=0, sticky="ew", padx=PAD, pady=(PAD - 6, 0))
         main.grid_columnconfigure(0, weight=1)
 
-        # width/height=1 → prázdný rám nezabírá výchozích 200 px CTkFrame;
-        # packnuté děti frame zvětší (pack_propagate je zapnuté).
+        # width/height=1 → an empty frame does not take the default 200 px of CTkFrame;
+        # packed children grow the frame (pack_propagate is on).
         self.source = ctk.CTkFrame(main, fg_color="transparent", width=1, height=1)
         self.source.grid(row=0, column=0, sticky="ew")
         self.info = ctk.CTkFrame(main, fg_color="transparent", width=1, height=1)
         self.info.grid(row=0, column=1, sticky="e", padx=(8, 0))
         self.actions = ctk.CTkFrame(main, fg_color="transparent", width=1, height=1)
         self.actions.grid(row=0, column=2, sticky="e", padx=(8, 0))
-        # Zpětná kompatibilita: starší panely plnily source_right → zprava u akcí
+        # Backward compatibility: older panels filled source_right → right, next to actions
         self.source_right = self.actions
 
-        # ── Spodní proužek – progress nebo prázdné místo stejné výšky ──
+        # ── Bottom strip – progress bar or empty space of the same height ──
         strip = ctk.CTkFrame(self, fg_color="transparent", height=6)
         strip.grid(row=1, column=0, sticky="ew", padx=PAD, pady=(8, PAD - 6))
         strip.grid_propagate(False)
@@ -264,7 +264,7 @@ class Toolbar(ctk.CTkFrame):
 
 
 def pack_row(*widgets, gap: int = 8):
-    """Zabalí prvky zleva doprava se stejnou mezerou."""
+    """Pack widgets left to right with the same gap."""
     for i, w in enumerate(widgets):
         if w is None:
             continue
@@ -273,7 +273,7 @@ def pack_row(*widgets, gap: int = 8):
 
 # ── Log ───────────────────────────────────────────────────────────────────────
 class LogCard(ctk.CTkFrame):
-    """Karta s logem – stejná hlavička, písmo a barevné tagy ve všech panelech."""
+    """Log card – same header, font and colour tags in every panel."""
 
     def __init__(self, master, title: str, **kw):
         super().__init__(master, fg_color=BG_CARD, corner_radius=RADIUS_CARD, **kw)
@@ -313,11 +313,11 @@ class LogCard(ctk.CTkFrame):
         self.box.configure(state="disabled")
 
 
-# ── Seznam modulů ─────────────────────────────────────────────────────────────
+# ── Module list ───────────────────────────────────────────────────────────────
 class ModuleList(ctk.CTkFrame):
     """
-    Pravý sloupec s výběrem modulů: záhlaví „Moduly  [Vše] [Nic]“ + karty.
-    Karty mají vždy stejné rozložení: ikona | název (+ popis) | checkbox.
+    Right column with module selection: header "Modules  [All] [None]" + cards.
+    Cards always have the same layout: icon | name (+ description) | check box.
     """
 
     def __init__(self, master, title: str = "", all_text: str = "", none_text: str = "",
@@ -351,7 +351,7 @@ class ModuleList(ctk.CTkFrame):
 
     def add_section(self, text: str, desc: str = "", color=ACCENT,
                     all_text: str = "", none_text: str = ""):
-        """Nadpis sekce uvnitř seznamu; volitelně s tlačítky Vše / Nic pro moduly."""
+        """Section heading inside the list; optionally with All / None buttons for its modules."""
         f = ctk.CTkFrame(self.scroll, fg_color="transparent")
         f.grid(row=self._row, column=0, sticky="ew", padx=4,
                pady=(0 if self._row == 0 else 14, 6))
@@ -370,7 +370,7 @@ class ModuleList(ctk.CTkFrame):
         return f
 
     def next_row(self) -> int:
-        """Vrátí řádek pro vlastní kartu vloženou do self.scroll."""
+        """Return a row for a custom card placed in self.scroll."""
         r = self._row
         self._row += 1
         return r
@@ -391,8 +391,8 @@ class ModuleList(ctk.CTkFrame):
             icon = ctk.CTkLabel(c, text=emoji, font=ctk.CTkFont(size=20), width=36)
         icon.grid(row=0, column=0, rowspan=span, padx=(12, 8), pady=pady)
 
-        # Pevný wraplength (ne auto_wrap) → žádná <Configure> smyčka na kartách;
-        # u panelů s mnoha moduly to výrazně zrychlí stavbu i překreslování.
+        # Fixed wraplength (not auto_wrap) → no <Configure> loop on the cards;
+        # for panels with many modules this speeds up building and redrawing a lot.
         title = ctk.CTkLabel(c, text=label, font=f_bold(), anchor="w", justify="left",
                              wraplength=WRAP_CARD)
         title.grid(row=0, column=1, sticky="ew", pady=((pady, 0) if desc else pady))
@@ -403,7 +403,7 @@ class ModuleList(ctk.CTkFrame):
 
         checkbox(c, var, accent=accent).grid(row=0, column=2, rowspan=span,
                                              padx=(8, 14))
-        # Klik kamkoli na kartu přepne volbu
+        # Clicking anywhere on the card toggles the option
         def _toggle(_e=None, v=var):
             v.set(not v.get())
         for w in (c, icon):

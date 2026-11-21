@@ -1,9 +1,9 @@
 # core/i18n.py
-_LANG = "en"        # výchozí jazyk aplikace (při spuštění)
+_LANG = "en"        # default application language (at start-up)
 
 TRANSLATIONS = {
     "cs": {
-        # ── Společné prvky UI (gui/theme.py) ──
+        # ── Shared UI elements (gui/theme.py) ──
         "ui.log":        "Průběh",
         "ui.modules":    "Moduly",
         "ui.all":        "Vše",

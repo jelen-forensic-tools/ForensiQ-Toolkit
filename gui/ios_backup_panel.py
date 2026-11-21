@@ -65,8 +65,8 @@ class iOSBackupPanel(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
         self._build()
-        # Po otevření panelu rovnou vyhledej zálohy iTunes (jinak by výběr
-        # ukazoval „Hledám…“, dokud uživatel neklikne na ↻)
+        # Scan for iTunes backups right after the panel opens (otherwise the list
+        # would show "Searching…" until the user clicks ↻)
         self.after(300, self._scan_backups)
 
     # ── UI construction ────────────────────────────────────────────────────
@@ -88,7 +88,7 @@ class iOSBackupPanel(ctk.CTkFrame):
         tb = th.Toolbar(self)
         tb.grid(row=0, column=0, sticky="ew", pady=(0, th.GAP))
 
-        # Zdroj: nalezené zálohy / ruční výběr / výstup
+        # Source: found backups / manual selection / output
         th.field_label(tb.source, t("ios_bkp.found_label")).pack(side="left", padx=(0, 8))
         self._found_var = ctk.StringVar(value=t("ios_bkp.searching"))
         self._found_combo = ctk.CTkComboBox(
@@ -103,12 +103,12 @@ class iOSBackupPanel(ctk.CTkFrame):
                                 width=150),
             th.secondary_button(tb.source, t("ui.output"), self._pick_output, width=150),
         )
-        # Heslo šifrované zálohy (zobrazí se jen u šifrované zálohy)
+        # Password of an encrypted backup (shown only for encrypted backups)
         self._pw_label = th.field_label(tb.source, t("ios_bkp.password"))
         self._password_entry = ctk.CTkEntry(tb.source, show="•", width=150,
                                             height=th.BTN_H, font=th.f_body())
 
-        # Info: cesta / výstup / zařízení / stav
+        # Info: path / output / device / status
         self._output_label = ctk.CTkLabel(tb.info, text="", font=th.f_small(),
                                           text_color=TEXT_MUTED, anchor="w")
         self._output_label.pack(side="left")
@@ -217,7 +217,7 @@ class iOSBackupPanel(ctk.CTkFrame):
             label = "…" + label[-57:]
         self._path_label.configure(text=label, text_color=WHITE)
 
-        # Zjisti, zda je vybraná složka šifrovaná záloha → zobraz pole na heslo
+        # Check whether the selected folder is an encrypted backup → show the password field
         try:
             enc = iOSBackupParser(path, "").is_encrypted()
         except Exception:
@@ -360,9 +360,9 @@ class iOSBackupPanel(ctk.CTkFrame):
     # ── Language refresh ───────────────────────────────────────────────────
 
     def refresh_lang(self):
-        """Překlad na místě – statické popisky řeší globální retranslate walk;
-        tady jen znovu vykreslíme dynamický složený odznak o zařízení pro
-        aktuálně vybranou zálohu. Žádný re-scan disku ani reset výstupu."""
+        """Retranslate in place – static labels are handled by the global retranslate walk;
+        here we only re-render the dynamic combined device badge for the
+        currently selected backup. No disk re-scan and no output reset."""
         sel = self._found_var.get()
         if sel and getattr(self._update_backup_list, "_backups", None):
             self._on_found_selected(sel)

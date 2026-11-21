@@ -14,19 +14,19 @@ RED         = "#ff5252"
 RED_DIM     = "#3d1a1f"
 WHITE       = "#ffffff"
 
-LEFT_W      = 440   # pevná šířka levého panelu (přehled zařízení), ~1/3 šířky
+LEFT_W      = 440   # fixed width of the left panel (device overview), ~1/3 of the width
 
 
-_SUPERSAMPLE = 4   # render 4× větší → CTkImage vždy downscaluje (Lanczos) → ostrá na HiDPI
+_SUPERSAMPLE = 4   # render 4× larger → CTkImage always downscales (Lanczos) → sharp on HiDPI
 _icon_cache: dict[tuple, ctk.CTkImage] = {}  # (size, color) → CTkImage
 
 
 def _make_phone_icon(size: int = 160,
                      color: tuple = (210, 210, 210)) -> ctk.CTkImage:
     """
-    Ikona telefonu s PIL supersamplingem + cache.
-    Bitmapa se generuje jen jednou pro každou kombinaci (size, color);
-    při opakovaném volání se vrací cached objekt.
+    Phone icon with PIL supersampling + cache.
+    The bitmap is generated only once per (size, color) combination;
+    repeated calls return the cached object.
     """
     key = (size, color)
     if key in _icon_cache:
@@ -69,8 +69,8 @@ class DeviceDashboard(ctk.CTkFrame):
         super().__init__(master, fg_color="transparent", **kwargs)
         self.accent = accent
         self._current_info = None
-        # Levý panel pevná šířka ~1/3 (weight=0 → nezávisí na obsahu ani jazyce);
-        # pravý panel roste se zbytkem okna.
+        # Left panel fixed width ~1/3 (weight=0 → independent of content and language);
+        # the right panel grows with the rest of the window.
         self.grid_columnconfigure(0, weight=0, minsize=LEFT_W)
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -78,21 +78,21 @@ class DeviceDashboard(ctk.CTkFrame):
 
     # ------------------------------------------------------------------
     def _build(self):
-        # ── Levý panel ──────────────────────────────────────────────
+        # ── Left panel ──────────────────────────────────────────────
         self._left = ctk.CTkFrame(self, fg_color=BG_LEFT, corner_radius=12, width=LEFT_W)
         self._left.grid(row=0, column=0, sticky="nsew", padx=(5, 3), pady=5)
         self._left.grid_propagate(False)
         self._left.grid_columnconfigure(0, weight=1)
-        self._left.grid_rowconfigure(2, weight=1)   # volné místo mezi ikonou a textem
+        self._left.grid_rowconfigure(2, weight=1)   # free space between the icon and the text
 
-        # Ikona telefonu
+        # Phone icon
         self._phone_img = _make_phone_icon(size=140)
         self._phone_icon = ctk.CTkLabel(
             self._left, text="", image=self._phone_img,
         )
         self._phone_icon.grid(row=0, column=0, pady=(20, 8))
 
-        # Název zařízení
+        # Device name
         self._device_name = ctk.CTkLabel(
             self._left, text=t("dash.no_device"),
             font=ctk.CTkFont(size=14, weight="bold"),
@@ -120,7 +120,7 @@ class DeviceDashboard(ctk.CTkFrame):
         )
         self._badge_text.grid(row=0, column=1, padx=(0, 10), pady=5)
 
-        # Typ připojení
+        # Connection type
         self._conn_type = ctk.CTkLabel(
             self._left, text="",
             font=ctk.CTkFont(size=11),
@@ -128,13 +128,13 @@ class DeviceDashboard(ctk.CTkFrame):
         )
         self._conn_type.grid(row=4, column=0, pady=(0, 30))
 
-        # ── Pravý panel ─────────────────────────────────────────────
+        # ── Right panel ─────────────────────────────────────────────
         self._right = ctk.CTkFrame(self, fg_color="transparent")
         self._right.grid(row=0, column=1, sticky="nsew", padx=(0, 5), pady=5)
         self._right.grid_columnconfigure(0, weight=1)
         self._right.grid_rowconfigure(1, weight=1)
 
-        # Placeholder (když není zařízení)
+        # Placeholder (when there is no device)
         self._placeholder = ctk.CTkFrame(self._right, fg_color=BG_CARD, corner_radius=12)
         self._placeholder.grid(row=0, column=0, rowspan=2, sticky="nsew")
         self._placeholder.grid_rowconfigure(0, weight=1)
@@ -146,15 +146,15 @@ class DeviceDashboard(ctk.CTkFrame):
             text_color=TEXT_MUTED,
             font=ctk.CTkFont(size=13),
             justify="center",
-            wraplength=460,   # zabrání, aby delší text (CS vs EN) měnil šířku sloupce
+            wraplength=460,   # prevents longer text (CS vs EN) from changing the column width
         )
         self._placeholder_lbl.grid(row=0, column=0, padx=30, pady=40)
 
-        # Quick-info karty (3 dlaždice) – skryté do připojení
+        # Quick-info cards (3 tiles) – hidden until connected
         self._quick_frame = ctk.CTkFrame(self._right, fg_color="transparent")
         self._quick_frame.grid_columnconfigure((0, 1, 2), weight=1)
 
-        # Detail sekce – scrollovatelná, skrytá do připojení
+        # Detail section – scrollable, hidden until connected
         self._detail_card = ctk.CTkScrollableFrame(
             self._right, fg_color="transparent", corner_radius=0
         )
@@ -183,14 +183,14 @@ class DeviceDashboard(ctk.CTkFrame):
         self._current_phone_color = color
         img = _make_phone_icon(size=140, color=color)
         self._phone_icon.configure(image=img)
-        self._phone_icon._image = img  # udržet referenci
+        self._phone_icon._image = img  # keep a reference
 
     def show_no_device(self):
         self._quick_frame.grid_remove()
         self._detail_card.grid_remove()
         self._placeholder.grid(row=0, column=0, rowspan=2, sticky="nsew")
         self._device_name.configure(text=t("dash.no_device"), text_color=TEXT_MUTED)
-        self._set_phone_color((220, 50, 50))   # červená
+        self._set_phone_color((220, 50, 50))   # red
         self._set_badge(connected=False)
 
     def show_loading(self):
@@ -198,18 +198,18 @@ class DeviceDashboard(ctk.CTkFrame):
         self._detail_card.grid_remove()
         self._placeholder.grid(row=0, column=0, rowspan=2, sticky="nsew")
         self._device_name.configure(text=t("dash.loading"), text_color=TEXT_MUTED)
-        self._set_phone_color((210, 210, 210))  # šedá
+        self._set_phone_color((210, 210, 210))  # grey
         self._set_badge(connected=False, loading=True)
 
     def show_device(self, info: dict):
-        # Přeskočit plný rebuild pokud se info nezměnilo (device-polling každých 5 s)
+        # Skip a full rebuild if the info has not changed (device polling every 5 s)
         if info == self._current_info:
             return
         self._current_info = info
         self._placeholder.grid_remove()
-        self._set_phone_color((0, 200, 83))     # zelená
+        self._set_phone_color((0, 200, 83))     # green
 
-        # Název zařízení – levý panel
+        # Device name – left panel
         manufacturer = info.get("manufacturer", "")
         model        = info.get("model", "N/A")
         device_name  = f"{manufacturer} {model}".strip() if manufacturer else model
@@ -217,7 +217,7 @@ class DeviceDashboard(ctk.CTkFrame):
         self._set_badge(connected=True)
         self._conn_type.configure(text=t("dash.conn_type"))
 
-        # ── Quick karty ─────────────────────────────────────────────
+        # ── Quick cards ─────────────────────────────────────────────
         for w in self._quick_frame.winfo_children():
             w.destroy()
 
@@ -244,7 +244,7 @@ class DeviceDashboard(ctk.CTkFrame):
 
         self._quick_frame.grid(row=0, column=0, sticky="ew")
 
-        # ── Detail sekce se sekcemi ─────────────────────────────────
+        # ── Detail area with sections ─────────────────────────────────
         for w in self._detail_card.winfo_children():
             w.destroy()
 

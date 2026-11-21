@@ -1,20 +1,21 @@
 """
-core/ios_backup_crypto.py — dešifrování šifrovaných iTunes/Finder iOS záloh.
+core/ios_backup_crypto.py — decryption of encrypted iTunes/Finder iOS backups.
 
-Pouze logická cesta (žádný jailbreak): uživatel zadá heslo zálohy, z keybagu
-v Manifest.plist se odvodí klíče a dešifruje se Manifest.db i jednotlivé soubory.
+Logical path only (no jailbreak): the user enters the backup password, the keys
+are derived from the keybag in Manifest.plist and Manifest.db as well as the
+individual files are decrypted.
 
-Postup (iOS 10.2+):
+Procedure (iOS 10.2+):
   1. Manifest.plist → BackupKeyBag (TLV keybag), ManifestKey, IsEncrypted.
-  2. Odvození klíče z hesla: PBKDF2-SHA256(heslo, DPSL, DPIC) → PBKDF2-SHA1(SALT, ITER).
-  3. Odemčení class-klíčů v keybagu přes AES key-unwrap (RFC 3394). Když se žádný
-     neodemkne, heslo je špatné (unwrap selže na integritní kontrole).
-  4. ManifestKey → class + wrapped klíč → AES-CBC(IV=0) dešifruje Manifest.db.
-  5. Každý soubor: jeho „file" blob (NSKeyedArchiver) nese ProtectionClass, Size a
-     wrapped EncryptionKey → class klíč → AES-CBC(IV=0), oříznout na Size.
+  2. Key derivation from the password: PBKDF2-SHA256(password, DPSL, DPIC) → PBKDF2-SHA1(SALT, ITER).
+  3. Unlock the class keys in the keybag via AES key unwrap (RFC 3394). If none
+     unlocks, the password is wrong (the unwrap fails its integrity check).
+  4. ManifestKey → class + wrapped key → AES-CBC(IV=0) decrypts Manifest.db.
+  5. Every file: its "file" blob (NSKeyedArchiver) carries ProtectionClass, Size and
+     the wrapped EncryptionKey → class key → AES-CBC(IV=0), truncated to Size.
 
-Kryptoprimitiva používá ověřená knihovna `cryptography` (AES-CBC, RFC 3394 unwrap)
-a stdlib `hashlib.pbkdf2_hmac`. Nic se neimplementuje ručně.
+The crypto primitives come from the well-tested `cryptography` library (AES-CBC,
+RFC 3394 unwrap) and the stdlib `hashlib.pbkdf2_hmac`. Nothing is hand-rolled.
 """
 from __future__ import annotations
 
@@ -31,7 +32,7 @@ _ZERO_IV = b"\x00" * 16
 
 
 def _loop_tlv(blob: bytes):
-    """Projde TLV blob keybagu: 4B tag, 4B délka (big-endian), hodnota."""
+    """Walk the keybag TLV blob: 4-byte tag, 4-byte length (big-endian), value."""
     i, n = 0, len(blob)
     while i + 8 <= n:
         tag = blob[i:i + 4].decode("ascii", "replace")
@@ -47,7 +48,7 @@ def _aes_cbc_decrypt(key: bytes, data: bytes) -> bytes:
 
 
 class Keybag:
-    """Backup keybag z Manifest.plist → odemčení class-klíčů heslem zálohy."""
+    """Backup keybag from Manifest.plist → unlock the class keys with the backup password."""
 
     def __init__(self, blob: bytes):
         self.attrs: dict = {}
@@ -74,12 +75,12 @@ class Keybag:
                 if "CLAS" in cur:
                     self.class_keys[cur["CLAS"]] = cur
             elif tag in ("SALT", "DPSL", "HMCK"):
-                self.attrs[tag] = val                       # surová sůl (bytes)
+                self.attrs[tag] = val                       # raw salt (bytes)
             elif tag in ("ITER", "DPIC"):
-                self.attrs[tag] = struct.unpack(">I", val)[0]  # počet iterací (int)
+                self.attrs[tag] = struct.unpack(">I", val)[0]  # iteration count (int)
 
     def unlock(self, password: bytes) -> bool:
-        """Odemkne class-klíče heslem. Vrátí True při správném hesle."""
+        """Unlock the class keys with the password. Returns True if the password is correct."""
         if "SALT" not in self.attrs or "ITER" not in self.attrs:
             return False
         if "DPSL" in self.attrs and "DPIC" in self.attrs:
@@ -111,8 +112,8 @@ class Keybag:
 
 
 def _parse_mbfile(blob: bytes):
-    """Z NSKeyedArchiver „file" blobu vytáhne (ProtectionClass, wrapped_key, Size).
-    Vrátí (None, None, size) když soubor nemá EncryptionKey (není šifrovaný)."""
+    """Extract (ProtectionClass, wrapped_key, Size) from an NSKeyedArchiver "file" blob.
+    Returns (None, None, size) when the file has no EncryptionKey (not encrypted)."""
     pl = plistlib.loads(blob)
     objs = pl["$objects"]
     root_uid = pl["$top"]["root"]
@@ -124,12 +125,12 @@ def _parse_mbfile(blob: bytes):
         return None, None, size
     enc_obj = objs[enc.data] if isinstance(enc, plistlib.UID) else objs[enc]
     nsdata = enc_obj["NS.data"] if isinstance(enc_obj, dict) else enc_obj
-    wrapped = bytes(nsdata)[4:]      # prvních 2 bajty/4 bajty = délka třídy → odstranit
+    wrapped = bytes(nsdata)[4:]      # the first 2/4 bytes = class length → strip them
     return int(prot), wrapped, size
 
 
 class EncryptedBackup:
-    """Dešifrování šifrované zálohy. Po vytvoření zkontroluj `password_ok`."""
+    """Decryption of an encrypted backup. Check `password_ok` after construction."""
 
     def __init__(self, backup_path: str, password: str):
         import os
@@ -142,7 +143,7 @@ class EncryptedBackup:
     def decrypt_manifest_db(self, enc_bytes: bytes) -> bytes:
         mk = self.manifest_plist.get("ManifestKey")
         if not mk:
-            raise ValueError("Manifest.plist nemá ManifestKey")
+            raise ValueError("Manifest.plist has no ManifestKey")
         clas = struct.unpack("<I", mk[:4])[0]
         key = self.keybag.unwrap_key_for_class(clas, mk[4:])
         return _aes_cbc_decrypt(key, enc_bytes)
@@ -150,7 +151,7 @@ class EncryptedBackup:
     def decrypt_file(self, file_blob: bytes, enc_bytes: bytes) -> bytes:
         prot, wrapped, size = _parse_mbfile(file_blob)
         if prot is None or wrapped is None:
-            return enc_bytes[:size] if size else enc_bytes   # nešifrovaný soubor
+            return enc_bytes[:size] if size else enc_bytes   # unencrypted file
         key = self.keybag.unwrap_key_for_class(prot, wrapped)
         dec = _aes_cbc_decrypt(key, enc_bytes)
         return dec[:size] if size else dec

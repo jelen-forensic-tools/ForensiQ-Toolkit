@@ -4,11 +4,11 @@ import datetime
 import os
 import sys
 from tkinter import filedialog
-# Pozn.: panely, extractor a report se importují AŽ při prvním použití
-# (viz _build_panel a jednotlivé handlery). Tím startuje okno rychle – jinak by
-# se hned při importu natáhly těžké závislosti (deepdiff, reportlab,
-# pymobiledevice3, paramiko, tkintermapview) i pro panely, které uživatel
-# třeba vůbec neotevře.
+# Note: panels, the extractor and the report are imported only on first use
+# (see _build_panel and the individual handlers). This keeps start-up fast –
+# otherwise heavy dependencies (deepdiff, reportlab, pymobiledevice3,
+# paramiko, tkintermapview) would be loaded at import time, even for panels
+# the user may never open.
 from .dashboard import DeviceDashboard
 from .wifi_dialog import WifiConnectDialog
 from .logo import logo_ctk_image
@@ -28,7 +28,7 @@ TEXT_MUTED = "#888888"
 
 
 def _app_icon_path() -> str | None:
-    """Cesta k ikoně ForenziQ (zdrojáky i .exe balíček), None pokud chybí."""
+    """Path to the ForenziQ icon (source tree or .exe bundle), None if missing."""
     if getattr(sys, "frozen", False):
         base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
     else:
@@ -38,11 +38,11 @@ def _app_icon_path() -> str | None:
 
 
 def _install_toplevel_icon():
-    """Všechna nová okna (CTkToplevel) dostanou ikonu ForenziQ.
+    """All new windows (CTkToplevel) get the ForenziQ icon.
 
-    CTkToplevel na Windows ~200 ms po vytvoření natvrdo nastaví svou výchozí
-    ikonu CustomTkinteru (přes iconbitmap). Tu proto přesměrujeme na naši
-    a navíc ji nastavíme hned při vytvoření okna (bez probliknutí).
+    On Windows, CTkToplevel hard-sets its default CustomTkinter icon ~200 ms
+    after creation (via iconbitmap). That icon is redirected to ours, and ours
+    is also set immediately when the window is created (no flicker).
     """
     ico = _app_icon_path()
     if not ico or getattr(ctk.CTkToplevel, "_fq_icon_patched", False):
@@ -99,13 +99,13 @@ class ForenziQApp(ctk.CTk):
 
         self.title("ForenziQ Toolkit")
         self._set_app_icon()
-        # Velikost okna přizpůsobená obrazovce. „Obnovená" velikost i minimální
-        # velikost se VŽDY ořežou tak, aby se vešly na aktuální obrazovku (jinak
-        # by na malých displejích – např. 1366×768 – okno přetékalo pod lištu
-        # nebo nešlo zmenšit). Aplikace se stejně spouští maximalizovaná.
-        # CTk hodnoty geometry()/minsize() ještě sám násobí window scalingem,
-        # proto počítáme v NEškálovaných jednotkách (obrazovka / scale) – jinak
-        # by na jiném rozlišení/DPI okno i minimální velikost přesáhly obrazovku.
+        # Window size adapted to the screen. The "restored" size and the minimum
+        # size are ALWAYS clamped to fit the current screen (otherwise on small
+        # displays – e.g. 1366×768 – the window would overflow below the taskbar
+        # or could not be shrunk). The app starts maximized anyway.
+        # CTk multiplies geometry()/minsize() values by the window scaling itself,
+        # so we compute in UNscaled units (screen / scale) – otherwise the window
+        # and its minimum size would exceed the screen at other resolutions/DPI.
         s = self._scale or 1.0
         sw = int(self.winfo_screenwidth() / s)
         sh = int(self.winfo_screenheight() / s)
@@ -118,12 +118,12 @@ class ForenziQApp(ctk.CTk):
         self.geometry(f"{w}x{h}+{x}+{y}")
         self.minsize(min_w, min_h)
         self.configure(fg_color=BG_DARK)
-        # Spustit maximalizované přes celou obrazovku (horní lišta a ovládání
-        # okna zůstávají; výše nastavená velikost slouží jako obnovená velikost).
-        # Pozn.: CTk na Windows okno po startu skryje a znovu zobrazí (tmavá
-        # titulní lišta) a tím přepíše stav „zoomed" nastavený příliš brzy.
-        # Na pomalejším PC (rozbalování onefile .exe) to trvá déle, proto se
-        # maximalizace opakovaně kontroluje, dokud stav „zoomed" nevydrží.
+        # Start maximized across the whole screen (title bar and window controls
+        # remain; the size set above is used as the restored size).
+        # Note: on Windows, CTk hides and re-shows the window after start-up (dark
+        # title bar), which overrides a "zoomed" state set too early. On slower PCs
+        # (unpacking the onefile .exe) this takes longer, so maximization is
+        # re-checked repeatedly until the "zoomed" state sticks.
         self._maximize_checks = 0
         self._maximize_ok = 0
         self.after(150, self._maximize)
@@ -133,10 +133,10 @@ class ForenziQApp(ctk.CTk):
         self.current_device: dict | None = None
         self.device_info: dict = {}
         self.output_dir = ""
-        self._search_dir = ""        # složka pro panel Hledání (indexuje se až v něm)
+        self._search_dir = ""        # folder for the Search panel (indexed only inside the panel)
         self._extraction_results: list = []
         self._current_view = "dashboard"
-        self._last_device_serials: list = []   # cache pro smart polling
+        self._last_device_serials: list = []   # cache for smart polling
         self._closing = False
         self._poll_after_id = None
         self._prewarm_after_id = None
@@ -144,13 +144,13 @@ class ForenziQApp(ctk.CTk):
         self._build_ui()
         self._check_adb()
         self._start_device_polling()
-        # Předehřej ostatní panely na pozadí → přepínání je pak okamžité
+        # Pre-build the other panels in the background → switching is then instant
         self._prewarm_after_id = self.after(1200, self._prewarm_panels)
-        # Čisté zavření – zastaví polling i běžící úlohy, pak zničí okno naráz
+        # Clean close – stops polling and running jobs, then destroys the window at once
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _maximize(self):
-        """Maximalizuje okno přes celou obrazovku (lišta a ovládání okna zůstávají)."""
+        """Maximize the window across the screen (title bar and window controls remain)."""
         if getattr(self, "_closing", False):
             return
         self._maximize_checks += 1
@@ -162,17 +162,17 @@ class ForenziQApp(ctk.CTk):
                 self.state("zoomed")
         except Exception:
             pass
-        # Hotovo, až stav „zoomed" vydrží 3 kontroly po sobě (max. ~8 s)
+        # Done once "zoomed" holds for 3 consecutive checks (max. ~8 s)
         if self._maximize_ok < 3 and self._maximize_checks < 20:
             self.after(400, self._maximize)
 
     def _on_close(self):
-        """Zastaví naplánované callbacky a vlákna, pak zavře okno v jednom kroku
-        (zabrání „rozpadu" vykreslení při postupném ničení widgetů)."""
+        """Cancel scheduled callbacks and threads, then close the window in one step
+        (prevents the UI from visibly "falling apart" while widgets are destroyed)."""
         if self._closing:
             return
         self._closing = True
-        # Zruš naplánované callbacky (polling, předehřívání)
+        # Cancel scheduled callbacks (polling, pre-warming)
         for attr in ("_poll_after_id", "_prewarm_after_id"):
             aid = getattr(self, attr, None)
             if aid is not None:
@@ -189,24 +189,24 @@ class ForenziQApp(ctk.CTk):
         try:
             sp = self._view_panels.get("search")
             if sp is not None:
-                sp.shutdown()          # zastaví indexaci na pozadí
+                sp.shutdown()          # stops background indexing
         except Exception:
             pass
-        # Okno nejprve skryj – uživatel pak nevidí postupné ničení widgetů
-        # (mapové dlaždice, canvas apod.), takže se obraz při zavírání „nesype".
+        # Hide the window first – the user then does not see widgets being destroyed
+        # one by one (map tiles, canvas, …), so the screen does not "crumble" on close.
         try:
             self.withdraw()
         except Exception:
             pass
         try:
-            self.quit()      # ukončí mainloop
+            self.quit()      # ends the mainloop
         finally:
-            self.destroy()   # zničí okno naráz (už skryté)
+            self.destroy()   # destroys the window at once (already hidden)
 
     # ── UI construction ──────────────────────────────────────────────────────
 
     def _set_app_icon(self):
-        """Nastaví ikonu okna – funguje ze zdrojáků i z .exe balíčku."""
+        """Set the window icon – works from source and from the .exe bundle."""
         ico = _app_icon_path()
         try:
             if ico:
@@ -236,7 +236,7 @@ class ForenziQApp(ctk.CTk):
         logo_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
         logo_frame.grid(row=0, column=0, padx=20, pady=(22, 4), sticky="w")
 
-        # Logo: "Forenzi" + lupa místo Q, "Toolkit", verze – jeden obrázek, přesně zarovnaný
+        # Logo: "Forenzi" + magnifier instead of Q, "Toolkit", version – one image, aligned exactly
         self._logo_img = logo_ctk_image(accent=ACCENT, ver_color=TEXT_MUTED, version="v1.0")
         ctk.CTkLabel(logo_frame, text="", image=self._logo_img).pack(anchor="w")
 
@@ -244,7 +244,7 @@ class ForenziQApp(ctk.CTk):
         lang_frame_top.grid(row=1, column=0, padx=20, pady=(0, 10), sticky="w")
         lang_frame_top.grid_columnconfigure((0, 1), weight=1)
 
-        # Aplikace startuje v angličtině (EN vlevo a aktivní), CS je volitelná
+        # The app starts in English (EN on the left and active), CS is optional
         self._btn_en = ctk.CTkButton(
             lang_frame_top, text="EN", width=44, height=24,
             fg_color=ACCENT, text_color="#000",
@@ -389,10 +389,10 @@ class ForenziQApp(ctk.CTk):
         self._content.grid_columnconfigure(0, weight=1)
         self._content.grid_rowconfigure(0, weight=1)
 
-        # Lazy panel registry – panely se tvoří až při prvním navštívení záložky.
-        # Okamžitě se tvoří pouze dashboard (výchozí pohled).
+        # Lazy panel registry – panels are created on the first visit of their tab.
+        # Only the dashboard (default view) is created immediately.
         self._view_panels: dict = {}
-        # Panely čekající na překlad – obnoví se líně až při přepnutí na ně
+        # Panels waiting for retranslation – refreshed lazily when switched to
         self._lang_dirty: set = set()
 
         self._dashboard = self._build_panel("dashboard")
@@ -401,7 +401,7 @@ class ForenziQApp(ctk.CTk):
     # ── Lazy panel factory ────────────────────────────────────────────────────
 
     def _build_panel(self, view: str):
-        """Vytvoří panel pro daný pohled, zaregistruje ho a vrátí instanci."""
+        """Create the panel for the given view, register it and return the instance."""
         if view in self._view_panels:
             return self._view_panels[view]
 
@@ -478,8 +478,8 @@ class ForenziQApp(ctk.CTk):
             return None
 
         p.grid(row=0, column=0, sticky="nsew")
-        # Panel postavený mimo aktivní pohled (předehřívání) pošli pod aktuální,
-        # ať neprobleskne navrch; aktivní panel zůstane viditelný.
+        # A panel built outside the active view (pre-warming) is sent below the
+        # current one so it does not flash on top; the active panel stays visible.
         if view != self._current_view:
             p.lower()
         self._view_panels[view] = p
@@ -487,7 +487,7 @@ class ForenziQApp(ctk.CTk):
 
     # ── Navigace ─────────────────────────────────────────────────────────────
 
-    # Statická mapa pohledů – sestavena jednou, nikoli při každém přepnutí
+    # Static view map – built once, not on every switch
     _TITLES = {
         "dashboard":  "topbar.dashboard",
         "extraction": "topbar.extraction",
@@ -511,7 +511,7 @@ class ForenziQApp(ctk.CTk):
         self._current_view = view
         self._topbar_title.configure(text=t(self._TITLES.get(view, "topbar.dashboard")))
 
-        # Aktualizuj jen dvě tlačítka (předchozí + nové) místo všech 8
+        # Update only two buttons (previous + new) instead of all of them
         for key in (prev_view, view):
             btn = self._nav_buttons.get(key)
             if btn:
@@ -520,30 +520,30 @@ class ForenziQApp(ctk.CTk):
                     text_color=ACCENT if key == view else "#cccccc",
                 )
 
-        # Lazy init – vytvoř panel pokud ještě neexistuje
+        # Lazy init – create the panel if it does not exist yet
         if view not in self._view_panels:
             self._build_panel(view)
 
-        # Líný překlad – pokud panel čeká na obnovu jazyka, obnov ho až teď
+        # Lazy translation – if the panel is waiting for a language refresh, do it now
         if view in self._lang_dirty:
             self._lang_dirty.discard(view)
             panel = self._view_panels.get(view)
             if panel is not None and hasattr(panel, "refresh_lang"):
                 panel.refresh_lang()
 
-        # Přepnutí = jen vyzvednutí hotového panelu navrch (lift). Panel se už
-        # nepřekresluje (byl vykreslen při stavbě / předehřátí) → okamžité a
-        # plynulé přepínání.
+        # Switching = just lifting the ready panel to the top. The panel is not
+        # redrawn (it was rendered when built / pre-warmed) → instant and
+        # smooth switching.
         self._view_panels[view].lift()
 
-    # ── Předehřívání panelů ────────────────────────────────────────────────────
+    # ── Panel pre-warming ──────────────────────────────────────────────────────
 
     def _prewarm_panels(self):
-        """Na pozadí postaví jen NEJČASTĚJŠÍ panely, aby jejich první otevření
-        bylo okamžité. Zbytek se staví líně až při prvním otevření – stavění
-        (a vykreslení desítek zaoblených karet) je v CustomTkinteru drahé, takže
-        předehřívat všechno by hned po startu zahltilo UI. Mapa a iOS se
-        vynechávají (samy spouští stahování dlaždic / USB polling)."""
+        """Build only the MOST USED panels in the background so their first opening
+        is instant. The rest are built lazily on first opening – building (and
+        rendering dozens of rounded cards) is expensive in CustomTkinter, so
+        pre-warming everything would flood the UI right after start-up. Map and
+        iOS are skipped (they start tile downloads / USB polling themselves)."""
         if self._closing:
             return
         PREWARM_ORDER = ["extraction", "results"]
@@ -555,7 +555,7 @@ class ForenziQApp(ctk.CTk):
             self._build_panel(nxt)
         except Exception:
             pass
-        # Větší rozestup → UI mezi stavbami zůstane svižné
+        # Larger gap → the UI stays responsive between builds
         self._prewarm_after_id = self.after(250, self._prewarm_panels)
 
     # ── Language ──────────────────────────────────────────────────────────────
@@ -635,7 +635,7 @@ class ForenziQApp(ctk.CTk):
             btn.configure(text=t(label_key))
         # Wifi button
         self._wifi_btn.configure(text=t("nav.wifi"))
-        # Ostatní panely obnov líně – jen viditelný hned (viz níže)
+        # Refresh other panels lazily – only the visible one right away (see below)
         self._lang_dirty = set(self._view_panels.keys()) - {self._current_view}
         # Topbar title (re-navigate to current view)
         self._navigate(self._current_view)
@@ -647,8 +647,8 @@ class ForenziQApp(ctk.CTk):
             self._adb_status_label.configure(text=t("adb.unavailable"))
         # Topbar buttons
         self._btn_refresh.configure(text=t("topbar.refresh"))
-        # Obnov pouze viditelný panel; ostatní (_lang_dirty) se obnoví až
-        # při přepnutí na ně – přepnutí jazyka tak nestaví všechny panely naráz.
+        # Refresh only the visible panel; the others (_lang_dirty) are refreshed
+        # when switched to – a language switch does not build all panels at once.
         panel = self._view_panels.get(self._current_view)
         if panel is not None and hasattr(panel, "refresh_lang"):
             panel.refresh_lang()
@@ -672,7 +672,7 @@ class ForenziQApp(ctk.CTk):
         def _worker():
             devices = self.adb.get_devices()
             serials = [d["serial"] for d in devices]
-            # Aktualizuj UI jen pokud se seznam zařízení skutečně změnil
+            # Update the UI only if the device list actually changed
             if serials != self._last_device_serials and not self._closing:
                 self._last_device_serials = serials
                 try:
@@ -826,8 +826,8 @@ class ForenziQApp(ctk.CTk):
         self._set_search_dir(target)
 
     def _set_search_dir(self, folder: str):
-        """Předá složku s výsledky panelu Hledání. Pokud panel ještě nebyl
-        otevřen, jen si ji zapamatuje – index se postaví až při jeho otevření."""
+        """Pass the results folder to the Search panel. If the panel has not been
+        opened yet, just remember it – the index is built when the panel opens."""
         self._search_dir = folder
         panel = self._view_panels.get("search")
         if panel is not None:
@@ -914,7 +914,7 @@ class ForenziQApp(ctk.CTk):
         EvidenceCaseDialog(self, on_submit=self._do_generate_evidence)
 
     def _do_generate_evidence(self, case_meta: dict):
-        # Zapamatuj údaje o případu → použijí se i na titulní straně PDF reportu
+        # Remember the case details → also used on the PDF report cover page
         self._case_meta = case_meta
         def _worker():
             try:

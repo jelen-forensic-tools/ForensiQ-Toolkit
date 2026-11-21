@@ -7,8 +7,8 @@ from typing import Optional, Callable
 
 from .i18n import t
 
-# Na Windows zabrání, aby každé volání adb/fastboot probliklo konzolovým oknem
-# (v „windowed" .exe se jinak při každém příkazu/pollingu otevře černé okno).
+# On Windows, prevent every adb/fastboot call from flashing a console window
+# (in the "windowed" .exe a black window would otherwise open on every command/poll).
 _CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 
@@ -18,27 +18,27 @@ class ADBManager:
         self.connected_device: Optional[str] = None
 
     def _find_adb(self) -> str:
-        """Najde ADB – v balíčku (.exe), vedle .exe, v projektu, nebo v PATH."""
+        """Find ADB – in the bundle (.exe), next to the .exe, in the project, or on PATH."""
         candidates = []
         if getattr(sys, "frozen", False):
-            # PyInstaller: vedle spustitelného .exe a v rozbaleném balíčku
+            # PyInstaller: next to the executable and in the unpacked bundle
             exe_dir = os.path.dirname(sys.executable)
             candidates.append(os.path.join(exe_dir, "adb", "adb.exe"))
             meipass = getattr(sys, "_MEIPASS", None)
             if meipass:
                 candidates.append(os.path.join(meipass, "adb", "adb.exe"))
-        # Lokální adb v projektu (běh ze zdrojáků)
+        # Local adb in the project (running from source)
         candidates.append(
             os.path.join(os.path.dirname(os.path.dirname(__file__)), "adb", "adb.exe")
         )
         for c in candidates:
             if os.path.exists(c):
                 return c
-        return "adb"  # předpokládáme adb v PATH
+        return "adb"  # assume adb is on PATH
 
     def _run(self, args: list, timeout: int | None = 30) -> tuple[int, str, str]:
-        """Spustí ADB příkaz a vrátí (returncode, stdout, stderr).
-        timeout=None znamená bez časového limitu (vhodné pro velké přenosy souborů)."""
+        """Run an ADB command and return (returncode, stdout, stderr).
+        timeout=None means no time limit (suitable for large file transfers)."""
         try:
             cmd = [self.adb_path] + args
             result = subprocess.run(
@@ -59,7 +59,7 @@ class ADBManager:
             return -1, "", str(e)
 
     def check_adb(self) -> tuple[bool, str]:
-        """Zkontroluje, zda je ADB dostupné."""
+        """Check whether ADB is available."""
         rc, out, err = self._run(["version"])
         if rc == 0:
             version = out.split("\n")[0] if out else t("val.unknown_version")
@@ -67,7 +67,7 @@ class ADBManager:
         return False, err
 
     def get_devices(self) -> list[dict]:
-        """Vrátí seznam připojených zařízení."""
+        """Return the list of connected devices."""
         rc, out, err = self._run(["devices", "-l"])
         devices = []
         if rc != 0:
@@ -100,33 +100,33 @@ class ADBManager:
         return any(d["serial"] == self.connected_device for d in devices)
 
     def shell(self, cmd: str, timeout: int = 30) -> str:
-        """Spustí shell příkaz na zařízení."""
+        """Run a shell command on the device."""
         if not self.connected_device:
             return ""
         rc, out, err = self._run(["-s", self.connected_device, "shell", cmd], timeout=timeout)
         return out
 
     def pull(self, remote: str, local: str, timeout: int = 120) -> bool:
-        """Stáhne soubor ze zařízení."""
+        """Pull a file from the device."""
         if not self.connected_device:
             return False
         rc, out, err = self._run(["-s", self.connected_device, "pull", remote, local], timeout=timeout)
         return rc == 0
 
     def pull_err(self, remote: str, local: str, timeout: int | None = 120) -> tuple[bool, str]:
-        """Stáhne soubor ze zařízení; vrátí (ok, error_msg)."""
+        """Pull a file from the device; returns (ok, error_msg)."""
         if not self.connected_device:
             return False, t("adbm.not_connected")
         rc, out, err = self._run(["-s", self.connected_device, "pull", remote, local], timeout=timeout)
         if rc == 0:
             return True, ""
         msg = (err or out or "").strip()
-        # Zkrátit na první řádek, pokud je více řádků
+        # Keep only the first line if there are several
         msg = msg.splitlines()[0] if msg else f"rc={rc}"
         return False, msg
 
     def get_device_info(self) -> dict:
-        """Získá základní informace o zařízení."""
+        """Get basic information about the device."""
         props = {
             "model":            "ro.product.model",
             "manufacturer":     "ro.product.manufacturer",
@@ -139,7 +139,7 @@ class ADBManager:
             "device":           "ro.product.device",
             "cpu_abi":          "ro.product.cpu.abi",
             "security_patch":   "ro.build.version.security_patch",
-            # SW rozšíření
+            # Software extras
             "build_type":       "ro.build.type",
             "build_tags":       "ro.build.tags",
             "build_fingerprint":"ro.build.fingerprint",
@@ -152,9 +152,9 @@ class ADBManager:
             "treble":           "ro.treble.enabled",
             "vndk_version":     "ro.vndk.version",
         }
-        # Všechny systémové vlastnosti najednou – jediný `getprop` dump místo
-        # ~23 samostatných volání `adb shell getprop <klíč>` (každé je round-trip
-        # přes USB). Výstup má tvar řádků `[klíč]: [hodnota]`.
+        # All system properties at once – a single `getprop` dump instead of
+        # ~23 separate `adb shell getprop <key>` calls (each is a round trip
+        # over USB). The output consists of `[key]: [value]` lines.
         prop_dump = self.shell("getprop")
         all_props: dict = {}
         for pm in re.finditer(r"^\[([^\]]+)\]:\s*\[(.*)\]$", prop_dump, re.MULTILINE):
@@ -165,13 +165,13 @@ class ADBManager:
             val = all_props.get(prop, "").strip()
             info[key] = val if val else "N/A"
 
-        # Formátuj IMEI z getprop (pouze číslice, mezery po 3)
+        # Format the IMEI from getprop (digits only, a space every 3)
         if info.get("imei") and info["imei"] != "N/A":
             digits = re.sub(r"[^0-9]", "", info["imei"])
             if digits:
                 info["imei"] = " ".join(digits[i:i+3] for i in range(0, len(digits), 3))
 
-        # IMEI alternativa
+        # IMEI fallback
         if info.get("imei") == "N/A":
             imei_raw = self.shell("service call iphonesubinfo 1")
             imeis = re.findall(r"'([0-9. ]+)'", imei_raw)
@@ -179,12 +179,12 @@ class ADBManager:
                 digits = re.sub(r"[^0-9]", "", "".join(imeis))
                 info["imei"] = " ".join(digits[i:i+3] for i in range(0, len(digits), 3))
 
-        # Šifrování – také obyčejná vlastnost, bereme ji z téhož dumpu.
+        # Encryption – also a plain property, taken from the same dump.
         crypto = all_props.get("ro.crypto.state", "").strip()
         info["encryption"] = crypto if crypto else "N/A"
 
-        # Zbývající (ne-getprop) dotazy sloučené do jediného compound příkazu
-        # oddělené unikátními značkami – místo ~9 samostatných shell volání.
+        # Remaining (non-getprop) queries merged into a single compound command
+        # separated by unique markers – instead of ~9 separate shell calls.
         _MARK = "\x1f@FQ@\x1f"
         batch_cmd = (
             f"echo '{_MARK}battery'; dumpsys battery 2>/dev/null | grep level; "
@@ -210,15 +210,15 @@ class ADBManager:
         def _sec(name: str) -> str:
             return "\n".join(sections.get(name, [])).strip()
 
-        # Kapacita baterie
+        # Battery level
         match = re.search(r"level:\s*(\d+)", _sec("battery"))
         info["battery"] = f"{match.group(1)}%" if match else "N/A"
 
-        # Kernel verze
+        # Kernel version
         kernel = _sec("kernel")
         info["kernel"] = kernel if kernel else "N/A"
 
-        # SELinux stav
+        # SELinux status
         selinux = _sec("selinux")
         info["selinux"] = selinux if selinux else "N/A"
 
@@ -226,7 +226,7 @@ class ADBManager:
         root_check = _sec("root")
         info["rooted"] = "Ano" if ("uid=0" in root_check or "/su" in root_check or "/bin/su" in root_check) else "Ne"
 
-        # Vývojářský režim
+        # Developer mode
         dev_mode = _sec("dev")
         info["dev_mode"] = "Zapnuto" if dev_mode.strip() == "1" else "Vypnuto"
 
@@ -238,7 +238,7 @@ class ADBManager:
         else:
             info["ram"] = "N/A"
 
-        # Rozlišení obrazovky
+        # Screen resolution
         m = re.search(r"Physical size:\s*(\S+)", _sec("wsize"))
         info["screen_resolution"] = m.group(1) if m else "N/A"
 
@@ -246,7 +246,7 @@ class ADBManager:
         m = re.search(r"Physical density:\s*(\d+)", _sec("wdens"))
         info["screen_dpi"] = f"{m.group(1)} DPI" if m else "N/A"
 
-        # Úložiště (/data)
+        # Storage (/data)
         df_out = _sec("df")
         info["storage_raw"] = df_out
         parts = df_out.split()
@@ -266,7 +266,7 @@ class ADBManager:
         return info
 
     def get_installed_apps(self, include_system: bool = False) -> list[str]:
-        """Vrátí seznam nainstalovaných aplikací."""
+        """Return the list of installed applications."""
         flag = "" if include_system else "-3"
         out = self.shell(f"pm list packages {flag}")
         packages = []
@@ -278,7 +278,7 @@ class ADBManager:
 
     def pull_async(self, remote: str, local: str,
                    callback: Callable[[bool], None], timeout: int = 300):
-        """Asynchronně stáhne soubor."""
+        """Pull a file asynchronously."""
         def _worker():
             result = self.pull(remote, local, timeout)
             callback(result)
@@ -287,20 +287,20 @@ class ADBManager:
     # ── Wi-Fi ADB ─────────────────────────────────────────────────────────────
 
     def get_device_ip(self) -> str:
-        """Zjistí IP adresu zařízení (wlan0)."""
+        """Find the device IP address (wlan0)."""
         if not self.connected_device:
             return ""
-        # Zkus ip route
+        # Try ip route
         out = self.shell("ip route | grep wlan0")
         m = re.search(r"src\s+([\d.]+)", out)
         if m:
             return m.group(1)
-        # Zkus ifconfig
+        # Try ifconfig
         out2 = self.shell("ifconfig wlan0 2>/dev/null | grep 'inet '")
         m2 = re.search(r"inet\s+([\d.]+)", out2)
         if m2:
             return m2.group(1)
-        # Zkus ip addr
+        # Try ip addr
         out3 = self.shell("ip addr show wlan0 | grep 'inet '")
         m3 = re.search(r"inet\s+([\d.]+)", out3)
         if m3:
@@ -308,7 +308,7 @@ class ADBManager:
         return ""
 
     def enable_tcpip(self, port: int = 5555) -> tuple[bool, str]:
-        """Přepne zařízení do TCP/IP režimu (vyžaduje USB připojení)."""
+        """Switch the device to TCP/IP mode (requires a USB connection)."""
         if not self.connected_device:
             return False, t("adbm.no_usb")
         rc, out, err = self._run(["-s", self.connected_device, "tcpip", str(port)])
@@ -317,7 +317,7 @@ class ADBManager:
         return False, err or out
 
     def connect_wifi(self, ip: str, port: int = 5555) -> tuple[bool, str]:
-        """Připojí se k zařízení přes Wi-Fi."""
+        """Connect to the device over Wi-Fi."""
         rc, out, err = self._run(["connect", f"{ip}:{port}"], timeout=15)
         combined = (out + err).lower()
         if "connected" in combined:
@@ -329,7 +329,7 @@ class ADBManager:
         return False, out or err or t("adbm.connect_failed")
 
     def disconnect_wifi(self, ip: str, port: int = 5555) -> tuple[bool, str]:
-        """Odpojí Wi-Fi zařízení."""
+        """Disconnect a Wi-Fi device."""
         rc, out, err = self._run(["disconnect", f"{ip}:{port}"])
         if rc == 0:
             if self.connected_device == f"{ip}:{port}":

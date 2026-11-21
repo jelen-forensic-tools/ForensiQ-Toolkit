@@ -1,18 +1,18 @@
-"""Vyfotí panely ForenziQ s FIKTIVNÍMI daty (bez reálného zařízení i sítě).
+"""Take screenshots of the ForenziQ panels with FICTITIOUS data (no real device, no network).
 
-Použití (z kořene projektu):
+Usage (from the project root):
     python tools/screenshots/make_demo.py tools/screenshots/cases/Demo_Phone_X1_20250521_093000
     python tools/screenshots/make_demo.py tools/screenshots/cases/Demo_Phone_X1_20250528_141500
-      (druhou složku pro Porovnání záloh pak ručně trochu upravte – smažte/změňte pár záznamů)
+      (then edit the second folder a little for Backup Comparison – delete/change a few records)
     python tools/screenshots/shoot.py en
     python tools/screenshots/shoot.py cs
-Výstup: docs/screenshots/*.png  (okno aplikace musí být na obrazovce viditelné)
+Output: docs/screenshots/*.png  (the application window must be visible on screen)
 
-* ADB je nahrazeno falešným zařízením „Demo Phone X1“ (nic se nevolá),
-* iOS panel nehledá zařízení,
-* nastavení reportů se čte z dočasného souboru s ukázkovými hodnotami,
-* mapa (stahuje dlaždice z internetu) se NEotevírá,
-* cesty ve štítcích se nahradí neutrální ukázkovou cestou.
+* ADB is replaced by a fake device "Demo Phone X1" (nothing is called),
+* the iOS panel does not look for devices,
+* report settings are read from a temporary file with sample values,
+* the map (downloads tiles from the internet) is NOT opened,
+* paths in labels are replaced with a neutral sample path.
 """
 import json
 import os
@@ -27,7 +27,7 @@ FAKE_ROOT = r"D:\Cases\DEMO-001"
 os.makedirs(OUT, exist_ok=True)
 sys.path.insert(0, PROJECT)
 
-# ── Falešné ADB zařízení ─────────────────────────────────────────────────────
+# ── Fake ADB device ──────────────────────────────────────────────────────────
 import core.adb_manager as am
 
 DEVICE = json.load(open(os.path.join(CASE_A, "device_info.json"), encoding="utf-8"))
@@ -43,7 +43,7 @@ def _connect(self, serial):
 am.ADBManager.connect_device = _connect
 am.ADBManager.get_device_info = lambda self: dict(DEVICE)
 
-# ── Ukázkové nastavení reportů (dočasný soubor) ──────────────────────────────
+# ── Sample report settings (temporary file) ──────────────────────────────────
 import core.settings as cs_settings
 
 _SET = os.path.join(HERE, "demo_settings.json")
@@ -51,11 +51,11 @@ json.dump({"report_examiner": "J. Doe", "report_organization": "Example Forensic
           open(_SET, "w", encoding="utf-8"))
 cs_settings._settings_path = lambda: _SET
 
-# ── iOS panel bez hledání zařízení ───────────────────────────────────────────
+# ── iOS panel without device discovery ──────────────────────────────────────
 import gui.ios_panel as iosp
 iosp.iOSPanel._refresh_devices = lambda self: None
 
-# ── iOS záloha: neprohledávat skutečné zálohy iTunes v tomto PC ─────────────
+# ── iOS backup: do not scan the real iTunes backups on this PC ──────────────
 import gui.ios_backup_panel as iosbp
 iosbp.find_itunes_backups = lambda *a, **k: []
 
@@ -156,7 +156,7 @@ def s_search_shot():
     p = app._search_panel
     kids = p._ov_tree.get_children()
     if kids:
-        p._ov_tree.selection_set(kids[0])            # nejčastější číslo
+        p._ov_tree.selection_set(kids[0])            # most frequent number
 
 
 @step(1500)

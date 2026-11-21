@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 
 def _report_asset(*parts) -> str:
-    """Absolutní cesta k souboru v assets/ (funguje ze zdrojáků i z .exe)."""
+    """Absolute path to a file in assets/ (works from source and from the .exe)."""
     import sys
     if getattr(sys, "frozen", False):
         base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
@@ -30,9 +30,9 @@ def _report_asset(*parts) -> str:
 
 def generate_pdf_report(results: list, device_info: dict, output_dir: str,
                         case_meta: dict | None = None) -> str:
-    """Profesionální forenzní PDF report: titulní strana s logy a údaji o případu,
-    klikací obsah, PDF osnova (bookmarks), hlavička a patička na každé straně.
-    Text je skutečný → fulltextové vyhledávání (Ctrl+F) funguje."""
+    """Professional forensic PDF report: cover page with logos and case details,
+    clickable table of contents, PDF outline (bookmarks), header and footer on every page.
+    The text is real → full-text search (Ctrl+F) works."""
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import cm, mm
@@ -66,11 +66,11 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
             _reg[alias] = fallback
     F, FB, FI = _reg["R"], _reg["B"], _reg["I"]
 
-    # ── Barevná paleta (profesionální, tmavě modrá) ───────────────────────────
-    C_NAVY    = colors.HexColor("#0d2149")   # titulní pozadí, hlavička sekcí
+    # ── Colour palette (professional, dark blue) ──────────────────────────────
+    C_NAVY    = colors.HexColor("#0d2149")   # cover background, section headers
     C_BLUE    = colors.HexColor("#1f5fb0")   # akcent
-    C_BLUE_L  = colors.HexColor("#2a6fc4")   # záhlaví tabulek
-    C_ACCENT  = colors.HexColor("#00a3cc")   # tyrkysový proužek (jako appka)
+    C_BLUE_L  = colors.HexColor("#2a6fc4")   # table headers
+    C_ACCENT  = colors.HexColor("#00a3cc")   # cyan accent bar (as in the app)
     C_GREEN   = colors.HexColor("#1b7a3d")
     C_GREEN_L = colors.HexColor("#e6f4ea")
     C_RED     = colors.HexColor("#b3261e")
@@ -86,7 +86,7 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
     MARGIN   = 1.8 * cm
     PAGE_W, PAGE_H = A4
     CONTENT_W = PAGE_W - 2 * MARGIN
-    HEADER_H = 1.25 * cm    # pruh pro hlavičku na obsahových stranách
+    HEADER_H = 1.25 * cm    # band for the header on content pages
     FOOTER_H = 1.2 * cm
     MAX_ROWS_PDF = 500
 
@@ -100,8 +100,8 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
     imei         = device_info.get("imei", "N/A")
     device_label = f"{manufacturer} {model}".strip() or "N/A"
 
-    # Nastavení (branding reportu) – examiner/organizace se doplní z nastavení,
-    # pokud nejsou v case_meta; logo firmy a přepínače bloků řídí panel Nastavení.
+    # Settings (report branding) – examiner/organisation are taken from the settings
+    # if missing in case_meta; the company logo and block switches come from Settings.
     from . import settings as _settings
     _cfg = _settings.load()
 
@@ -128,23 +128,23 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
     s_hdr    = _st("ch", font=FB, size=8, color=C_WHITE, after=0, leading=11)
     s_ok     = _st("co", font=FB, size=8, color=C_GREEN, after=0, leading=11)
     s_err    = _st("ce", font=FB, size=8, color=C_RED, after=0, leading=11)
-    # Nadpisy sekcí – podle jmen stylu je afterFlowable zařadí do obsahu/osnovy.
-    # keepWithNext drží nadpis u následující tabulky (bez KeepTogetheru, který
-    # u velkých tabulek u hranice stránky rozhodí stránkování a obsah = TOC).
+    # Section headings – afterFlowable puts them into the TOC/outline by style name.
+    # keepWithNext keeps a heading with the following table (no KeepTogether, which
+    # breaks pagination and the TOC for large tables at a page boundary).
     s_sec0   = _st("SectionH0", font=FB, size=13, color=C_NAVY, before=2, after=8, leading=16)
     s_sec1   = _st("SectionH1", font=FB, size=11, color=C_BLUE, before=2, after=6, leading=14)
     s_sec0.keepWithNext = True
     s_sec1.keepWithNext = True
 
-    # ── Dokument: šablony stránek + obsah/osnova ──────────────────────────────
+    # ── Document: page templates + TOC/outline ────────────────────────────────
     _bm = {"n": 0}
 
     _total = {"n": 0}
 
     class _ReportDoc(BaseDocTemplate):
         def beforeDocument(self):
-            # Nuluj počítadlo na začátku každého průchodu multiBuild → klíče
-            # sekcí jsou stabilní a obsah (TOC) konverguje.
+            # Reset the counter at the start of every multiBuild pass → section
+            # keys are stable and the table of contents (TOC) converges.
             _bm["n"] = 0
 
         def afterFlowable(self, flowable):
@@ -169,7 +169,7 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
                           id="content", leftPadding=0, rightPadding=0,
                           topPadding=0, bottomPadding=0)
 
-    # ── Hlavička + patička (inline přes onPage → zachová záložky/odkazy) ──────
+    # ── Header + footer (inline via onPage → keeps bookmarks/links) ───────────
     header_line = []
     if case_no:
         header_line.append(f"{t('rpt.hdr_case')}: {case_no}")
@@ -181,12 +181,12 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
 
     def _decorate(canvas, docu):
         page_num = canvas.getPageNumber()
-        # Celkový počet stran = maximum přes průchody multiBuild. Jakmile TOC
-        # zkonverguje, drží se počet stabilní, takže všechny strany finálního
-        # průchodu dostanou správné „N" (plní se z předchozího průchodu).
+        # Total page count = maximum across multiBuild passes. Once the TOC
+        # converges the count is stable, so every page of the final pass gets
+        # the correct "N" (filled in from the previous pass).
         _total["n"] = max(_total["n"], page_num)
         if page_num == 1:
-            return   # titulní strana bez hlavičky/patičky
+            return   # cover page without header/footer
         canvas.saveState()
         canvas.setFont(F, 7.5)
         canvas.setFillColor(C_MUTED)
@@ -214,7 +214,7 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
     ])
 
     # ══════════════════════════════════════════════════════════════════════════
-    # TITULNÍ STRANA
+    # COVER PAGE
     # ══════════════════════════════════════════════════════════════════════════
     story = []
 
@@ -267,12 +267,12 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
     story.append(header_row)
     story.append(Spacer(1, 3.2 * cm))
 
-    # Velký titul
+    # Large title
     story.append(Paragraph(t("rpt.title_upper"),
                            _st("ctitle", font=FB, size=30, color=C_NAVY, after=4, leading=34)))
     story.append(Paragraph(t("rpt.cover_subtitle"),
                            _st("csub", size=12.5, color=C_BLUE, after=0, leading=16)))
-    # tyrkysový oddělovač
+    # cyan separator
     sep = Table([[""]], colWidths=[4 * cm], rowHeights=[3])
     sep.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), C_ACCENT)]))
     story.append(Spacer(1, 10))
@@ -345,7 +345,7 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
     story.append(PageBreak())
 
     # ══════════════════════════════════════════════════════════════════════════
-    # SEKCE: Informace o zařízení
+    # SECTION: Device information
     # ══════════════════════════════════════════════════════════════════════════
     story.append(Paragraph(t("rpt.device_info"), s_sec0))
 
@@ -404,7 +404,7 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
     story.append(dev_tbl)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # SEKCE: Souhrn extrakce
+    # SECTION: Extraction summary
     # ══════════════════════════════════════════════════════════════════════════
     story.append(Paragraph(t("rpt.summary"), s_sec0))
     sum_rows = [[Paragraph(t("rpt.col_module"), s_hdr), Paragraph(t("rpt.col_status"), s_hdr),
@@ -428,7 +428,7 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
     story.append(sum_tbl)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # SEKCE: Extrahovaná data (parent) + jednotlivé moduly (child)
+    # SECTION: Extracted data (parent) + individual modules (children)
     # ══════════════════════════════════════════════════════════════════════════
     def _data_table(data_list):
         if not data_list:
@@ -480,15 +480,15 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
                     ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
                 ]))
                 block.append(kv_tbl)
-        # Nadpis modulu drží u tabulky keepWithNext (žádný KeepTogether → stabilní
-        # stránkování i obsah).
+        # keepWithNext keeps the module heading with its table (no KeepTogether → stable
+        # pagination and TOC).
         story.extend(block)
         story.append(Spacer(1, 10))
 
     doc.multiBuild(story)
     return pdf_path
 def generate_excel_report(results: list, device_info: dict, output_dir: str) -> str:
-    """Vygeneruje Excel sešit (.xlsx) z výsledků extrakce."""
+    """Generate an Excel workbook (.xlsx) from the extraction results."""
     from openpyxl import Workbook
     from openpyxl.styles import (
         PatternFill, Font, Alignment, Border, Side, GradientFill
@@ -515,10 +515,10 @@ def generate_excel_report(results: list, device_info: dict, output_dir: str) -> 
     BORDER = Border(left=thin, right=thin, top=thin, bottom=thin)
 
     def _sanitize(v) -> str:
-        """Odstraní znaky ilegální v XML 1.0 (openpyxl/xlsx je požaduje čisté)."""
+        """Remove characters that are illegal in XML 1.0 (openpyxl/xlsx requires clean text)."""
         import re
         s = str(v) if v is not None else ""
-        # Zakázané znaky v XML 1.0: U+0000–U+0008, U+000B, U+000C, U+000E–U+001F, U+FFFE, U+FFFF
+        # Characters illegal in XML 1.0: U+0000–U+0008, U+000B, U+000C, U+000E–U+001F, U+FFFE, U+FFFF
         return re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]", "", s)
 
     def _auto_width(ws, min_w=10, max_w=50):
@@ -547,7 +547,7 @@ def generate_excel_report(results: list, device_info: dict, output_dir: str) -> 
 
     wb = Workbook()
 
-    # ── List 1: Informace o zařízení ─────────────────────────────────────────
+    # ── Sheet 1: Device information ──────────────────────────────────────────
     ws_dev = wb.active
     ws_dev.title = t("rpt.device_sheet")
     ws_dev.merge_cells("A1:B1")
@@ -573,7 +573,7 @@ def generate_excel_report(results: list, device_info: dict, output_dir: str) -> 
     ws_dev.column_dimensions["A"].width = 28
     ws_dev.column_dimensions["B"].width = 45
 
-    # ── List 2: Souhrn ────────────────────────────────────────────────────────
+    # ── Sheet 2: Summary ────────────────────────────────────────────────────────
     ws_sum = wb.create_sheet(t("rpt.summary")[:31])
     ws_sum.merge_cells("A1:D1")
     c = ws_sum["A1"]
@@ -594,7 +594,7 @@ def generate_excel_report(results: list, device_info: dict, output_dir: str) -> 
             r.count if r.success else 0,
             os.path.basename(r.file_path) if r.file_path else ""
         ], ri, alt)
-        # Obarvi stav
+        # Colour the status
         stav_cell = ws_sum.cell(row=ri, column=2)
         if r.success:
             stav_cell.font = FONT_OK
@@ -606,12 +606,12 @@ def generate_excel_report(results: list, device_info: dict, output_dir: str) -> 
 
     _auto_width(ws_sum)
 
-    # ── Listy pro každý modul ─────────────────────────────────────────────────
+    # ── One sheet per module ──────────────────────────────────────────────────
     for r in results:
         if not r.success or not r.data:
             continue
 
-        # Excel: max 31 znaků, bez []:*?/\ a názvy musí být unikátní
+        # Excel: max. 31 characters, no []:*?/\ and names must be unique
         base = re.sub(r"[\[\]:*?/\\]", "-", r.label).strip("' ")[:31] or r.module[:31]
         sheet_name, n = base, 2
         while sheet_name in wb.sheetnames:
@@ -645,7 +645,7 @@ def generate_excel_report(results: list, device_info: dict, output_dir: str) -> 
 
 
 def generate_report(results: list, device_info: dict, output_dir: str) -> str:
-    """Vygeneruje profesionální HTML report se stránkováním a vyhledáváním."""
+    """Generate a professional HTML report with pagination and search."""
     import json as _json
     import html as _html
 
@@ -663,7 +663,7 @@ def generate_report(results: list, device_info: dict, output_dir: str) -> str:
         s = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", s)
         return _html.escape(s)
 
-    # Připrav JSON data pro JS engine (všechna data, bez limitu)
+    # Prepare JSON data for the JS engine (all data, no limit)
     js_modules = []
     for r in results:
         entry = {
@@ -703,12 +703,12 @@ def generate_report(results: list, device_info: dict, output_dir: str) -> str:
         "status_err": t("rpt.status_err"),
     }, ensure_ascii=False)
 
-    # Souhrn pro dashboard
+    # Summary for the dashboard
     ok_count   = sum(1 for r in results if r.success)
     fail_count = len(results) - ok_count
     total_rec  = sum(r.count for r in results if r.success)
 
-    # Device info řádky
+    # Device info rows
     device_fields_html = ""
     important = ["manufacturer", "model", "android", "sdk", "serial", "imei",
                  "battery", "storage_total", "storage_free", "security_patch"]

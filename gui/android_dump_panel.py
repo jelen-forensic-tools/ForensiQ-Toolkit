@@ -63,7 +63,7 @@ class AndroidDumpPanel(ctk.CTkFrame):
         tb = th.Toolbar(self, progress=True)
         tb.grid(row=0, column=0, sticky="ew", pady=(0, th.GAP))
 
-        # Zdroj: obraz + výstup + oddíl
+        # Source: image + output + partition
         self._btn_pick = th.secondary_button(tb.source, t("adump.pick_image"), self._pick_image,
                                              width=150)
         th.pack_row(
@@ -77,7 +77,7 @@ class AndroidDumpPanel(ctk.CTkFrame):
         self._part_combo._btn.configure(width=220)
         self._part_combo.pack(side="left")
 
-        # Info: cesta / výstup / stav
+        # Info: path / output / status
         self._path_label = ctk.CTkLabel(tb.info, text=t("adump.no_image"), font=th.f_small(),
                                         text_color=TEXT_MUTED, anchor="w")
         self._path_label.pack(side="left")

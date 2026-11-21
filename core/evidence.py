@@ -24,8 +24,8 @@ MANIFEST_TXT = "evidence_manifest.txt"
 
 # Outputs of this step itself – never hashed into the manifest.
 _SELF_FILES = {MANIFEST_NAME, MANIFEST_TXT}
-# Pracovní produkt analytika (index hledání, štítky, poznámky) – vzniká až po
-# zajištění dat a mění se během analýzy, proto nepatří do manifestu důkazů.
+# Analyst work product (search index, tags, notes) – created after the
+# acquisition and changed during analysis, so it does not belong in the evidence manifest.
 _SELF_DIRS = ("_case",)
 
 _CHUNK = 1 << 20  # 1 MiB

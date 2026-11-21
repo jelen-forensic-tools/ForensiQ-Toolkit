@@ -11,7 +11,7 @@ TEXT_MUTED = "#888888"
 
 
 class WifiConnectDialog(ctk.CTkToplevel):
-    """Dialog pro připojení k zařízení přes Wi-Fi (ADB over TCP/IP)."""
+    """Dialog for connecting to a device over Wi-Fi (ADB over TCP/IP)."""
 
     def __init__(self, master, adb: ADBManager, on_connected=None):
         super().__init__(master)
@@ -39,7 +39,7 @@ class WifiConnectDialog(ctk.CTkToplevel):
                      font=ctk.CTkFont(size=11), text_color=TEXT_MUTED,
                      wraplength=430).pack(padx=25, pady=(0, 15), anchor="w")
 
-        # Krok 1 – aktivace TCP/IP
+        # Step 1 – enable TCP/IP
         step1 = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=10)
         step1.pack(fill="x", padx=20, pady=4)
 
@@ -79,7 +79,7 @@ class WifiConnectDialog(ctk.CTkToplevel):
             row=2, column=0, padx=15, pady=(0, 12), sticky="w"
         )
 
-        # Krok 3 – připojit
+        # Step 3 – connect
         step3 = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=10)
         step3.pack(fill="x", padx=20, pady=4)
 
@@ -100,7 +100,7 @@ class WifiConnectDialog(ctk.CTkToplevel):
         )
         self._status_label.pack(padx=25, pady=(10, 5), anchor="w")
 
-        # Zavřít
+        # Close
         ctk.CTkButton(self, text=t("wifi.close"), width=90, height=32,
                       fg_color="#2a2a4a", hover_color="#3a3a5a",
                       command=self.destroy).pack(side="right", padx=20, pady=(0, 15))

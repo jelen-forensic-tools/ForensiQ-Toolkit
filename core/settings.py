@@ -1,9 +1,9 @@
 """
-core/settings.py — trvalé uživatelské nastavení aplikace (JSON v ~/.forenziq).
+core/settings.py — persistent user settings of the application (JSON in ~/.forenziq).
 
-Používá se hlavně pro branding reportů: logo firmy/vyšetřovatele, výchozí jméno
-examinátora a organizace, přepínače co se v reportu zobrazí. Čte se jak z GUI
-panelu Nastavení, tak z generátoru reportů (core/report.py).
+Used mainly for report branding: company/investigator logo, default examiner
+and organisation names, switches for what the report shows. Read both by the
+Settings panel in the GUI and by the report generator (core/report.py).
 """
 from __future__ import annotations
 
@@ -14,13 +14,13 @@ import threading
 _LOCK = threading.Lock()
 
 _DEFAULTS: dict = {
-    # Branding reportů
-    "report_examiner":           "",      # výchozí jméno examinátora
-    "report_organization":       "",      # výchozí organizace
-    "report_company_logo":       "",      # cesta k logu firmy/vyšetřovatele (PNG/JPG)
-    "report_show_company_logo":  True,    # zobrazit firemní logo na titulní straně
-    "report_show_case_details":  True,    # zobrazit blok „Údaje o případu"
-    "report_show_tool_logo":     True,    # zobrazit logo ForenziQ na titulní straně
+    # Report branding
+    "report_examiner":           "",      # default examiner name
+    "report_organization":       "",      # default organisation
+    "report_company_logo":       "",      # path to the company/investigator logo (PNG/JPG)
+    "report_show_company_logo":  True,    # show the company logo on the cover page
+    "report_show_case_details":  True,    # show the "Case details" block
+    "report_show_tool_logo":     True,    # show the ForenziQ logo on the cover page
 }
 
 
@@ -34,7 +34,7 @@ def _settings_path() -> str:
 
 
 def load() -> dict:
-    """Vrátí všechna nastavení (výchozí hodnoty doplněné o uložené)."""
+    """Return all settings (defaults completed with the saved values)."""
     data = dict(_DEFAULTS)
     path = _settings_path()
     try:
@@ -49,12 +49,12 @@ def load() -> dict:
 
 
 def get(key: str, default=None):
-    """Jedna hodnota nastavení."""
+    """A single setting value."""
     return load().get(key, _DEFAULTS.get(key, default))
 
 
 def save(values: dict) -> None:
-    """Uloží předané hodnoty (sloučí s existujícími)."""
+    """Save the given values (merged with the existing ones)."""
     with _LOCK:
         data = load()
         data.update({k: v for k, v in values.items() if k in _DEFAULTS})

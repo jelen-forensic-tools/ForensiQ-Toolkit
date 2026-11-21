@@ -1,7 +1,7 @@
 import sys
 import os
 
-# Přidej projekt do cesty
+# Add the project to the import path
 sys.path.insert(0, os.path.dirname(__file__))
 
 from gui.app import ForenziQApp

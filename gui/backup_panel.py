@@ -31,7 +31,7 @@ WHITE       = "#ffffff"
 
 # Format metadata for UI: key → (icon, i18n_sub_key, icon_color)
 SEL_BG = "#1e2a4a"
-# ikony modulů importu (assets/icons/<key>.png)
+# icons of the import modules (assets/icons/<key>.png)
 MOD_ICON_KEYS = {
     "bkp_contacts": "contacts", "bkp_sms": "sms", "bkp_calls": "call_logs",
     "bkp_media": "media", "bkp_wifi": "wifi", "bkp_calendar": "calendar",
@@ -73,7 +73,7 @@ class BackupImportPanel(ctk.CTkFrame):
         self._build()
 
     def _load_fmt_icons(self) -> dict:
-        """Načte značkové ikony formátů (funguje ze zdrojáků i z .exe balíčku)."""
+        """Load the brand icons of backup formats (works from source and from the .exe bundle)."""
         if getattr(sys, "frozen", False):
             base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
         else:
@@ -107,7 +107,7 @@ class BackupImportPanel(ctk.CTkFrame):
         self._build_config(body)
 
     def _build_topbar(self, parent):
-        """Horní lišta – výběr zdroje + akce (výstupní složka se volí automaticky)."""
+        """Top bar – source selection + actions (the output folder is chosen automatically)."""
         tb = th.Toolbar(parent)
         tb.grid(row=0, column=0, sticky="ew", pady=(0, th.GAP))
 
@@ -129,13 +129,13 @@ class BackupImportPanel(ctk.CTkFrame):
         th.pack_row(self._btn_run, self._btn_stop)
 
     def _build_log(self, parent):
-        """Levý panel – log importu."""
+        """Left panel – import log."""
         self._log_card = th.LogCard(parent, t("ui.log"))
         self._log_card.grid(row=0, column=0, sticky="nsew", padx=(0, th.GAP))
         self._log_box = self._log_card.box
 
     def _build_config(self, parent):
-        """Pravý panel – výběr formátu a modulů."""
+        """Right panel – format and module selection."""
         self._modules = th.ModuleList(parent)
         self._modules.grid(row=0, column=1, sticky="nsew")
         right = self._modules.scroll
@@ -308,9 +308,9 @@ class BackupImportPanel(ctk.CTkFrame):
         self.after(0, lambda t=text, s=ts: self._log_append(f"[{s}] {t}"))
 
     def refresh_lang(self):
-        """Překlad na místě – statické popisky (formáty, moduly, nadpisy) řeší
-        globální retranslate walk; tady jen znovu vykreslíme dynamický detekční
-        odznak, bez nové detekce a bez resetu výstupní složky."""
+        """Retranslate in place – static labels (formats, modules, headings) are handled
+        by the global retranslate walk; here we only re-render the dynamic detection
+        badge, without a new detection and without resetting the output folder."""
         if self._backup_path:
             name = Path(self._backup_path).name or self._backup_path
             detected = getattr(self, "_detected_fmt", None)

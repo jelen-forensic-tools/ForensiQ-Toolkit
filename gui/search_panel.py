@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-SearchPanel – hledání napříč všemi daty jedné extrakce.
+SearchPanel – search across all data of one extraction.
 
-Nahoře: výběr výstupní složky + stav indexu (indexace běží na pozadí).
-Pod tím: vyhledávací řádek (text / číslo / fráze, zdroj, datum od–do).
-Vlevo: výsledky (zdroj, čas, úryvek s nálezem) – dvojklik otevře detail.
-Vpravo: přehled nalezených entit (čísla, e-maily, IBAN, …) – klik filtruje.
+Top: output folder selection + index status (indexing runs in the background).
+Below: search bar (text / number / phrase, source, date from–to).
+Left: results (source, time, snippet with the match) – double-click opens the detail.
+Right: overview of entities found (numbers, e-mails, IBANs, …) – click to filter.
 
-Veškerá práce s databází běží ve vláknech; do UI se vrací přes after().
+All database work runs in threads; results return to the UI via after().
 """
 import os
 import threading
@@ -19,11 +19,11 @@ from core import search_index as si
 from core.i18n import t, has
 from . import theme as th
 
-PAGE = 300                      # záznamů na jednu stránku výsledků
-OVERVIEW_LIMIT = 500            # max. položek v přehledu entit
+PAGE = 300                      # records per results page
+OVERVIEW_LIMIT = 500            # max. items in the entity overview
 KINDS = ["phone"] + list(si.ENTITY_KINDS)
 
-# Názvy souborů, jejichž modul má jiný klíč než název souboru
+# File names whose module key differs from the file name
 _FILE_MODULE = {
     "browser_history": "mod.browser",
     "wifi_networks":   "mod.wifi",
@@ -34,14 +34,14 @@ _FILE_MODULE = {
     "user_data_tree_manifest": "mod.user_data_tree",
 }
 
-# Klíče, které nejlépe vystihnou záznam (pro sloupec „Nález“ bez úryvku)
+# Keys that best describe a record (for the "Match" column without a snippet)
 _SUMMARY_KEYS = ("name", "display_name", "contact", "address", "number", "phone",
                  "from", "to", "title", "subject", "filename", "body", "text",
                  "message", "url", "package", "app", "ssid", "account", "type")
 
 
 def source_label(fname: str) -> str:
-    """Čitelný název zdroje podle názvu JSON souboru."""
+    """Readable source name based on the JSON file name."""
     stem = os.path.splitext(fname)[0]
     cands = [_FILE_MODULE.get(stem, ""), f"mod.{stem}"]
     if stem.startswith("ios_"):
@@ -58,12 +58,12 @@ def _one_line(s: str, limit: int = 220) -> str:
 
 
 def _short_path(p: str, limit: int = 60) -> str:
-    """Dlouhou cestu zkrátí zleva (konec cesty je nejvýmluvnější)."""
+    """Shorten a long path from the left (the end of a path is the most telling part)."""
     return p if len(p) <= limit else "…" + p[-(limit - 1):]
 
 
 def record_summary(rec: dict) -> str:
-    """Krátké shrnutí záznamu z nejvýmluvnějších polí."""
+    """Short summary of a record from its most telling fields."""
     vals = []
     for k in _SUMMARY_KEYS:
         v = rec.get(k)
@@ -80,7 +80,7 @@ def record_summary(rec: dict) -> str:
 
 
 def _parse_date_input(s: str, end: bool):
-    """Datum z pole filtru → ISO řetězec pro porovnání; None = prázdné; False = chyba."""
+    """Date from a filter field → ISO string for comparison; None = empty; False = invalid."""
     s = (s or "").strip()
     if not s:
         return None
@@ -97,20 +97,20 @@ class SearchPanel(ctk.CTkFrame):
         super().__init__(master, fg_color="transparent", **kwargs)
         self.accent = accent
         self._dir = ""
-        self._files: list[str] = []             # zaindexované soubory
+        self._files: list[str] = []             # indexed files
         self._index_thread = None
         self._cancel_index = False
         self._indexing = False
         self._closing = False
-        self._query_gen = 0                     # zahazuje opožděné výsledky
-        self._rows: list[dict] = []             # zobrazené výsledky
+        self._query_gen = 0                     # discards late results
+        self._rows: list[dict] = []             # displayed results
         self._total = 0
-        self._last_query = None                 # (mode, args) pro „Načíst další“
+        self._last_query = None                 # (mode, args) for "Load more"
         self._entity_filter = None              # (kind, norm, label)
         self._kind = "phone"
         self._overview_rows: list[dict] = []
         self._summary: dict = {}
-        self._last_stats = None                 # poslední výsledek indexace
+        self._last_stats = None                 # last indexing result
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
@@ -121,7 +121,7 @@ class SearchPanel(ctk.CTkFrame):
     def _build(self):
         self._style_tree()
 
-        # Toolbar: složka + stav indexu + přeindexovat
+        # Toolbar: folder + index status + re-index
         tb = th.Toolbar(self, progress=True)
         tb.grid(row=0, column=0, sticky="ew", pady=(0, th.GAP))
         self._progress = tb.progress
@@ -140,7 +140,7 @@ class SearchPanel(ctk.CTkFrame):
                                                 width=130, state="disabled")
         self._reindex_btn.pack(side="left")
 
-        # Vyhledávací řádek
+        # Search bar
         bar = th.card(self)
         bar.grid(row=1, column=0, sticky="ew", pady=(0, th.GAP))
         bar.grid_columnconfigure(0, weight=1)
@@ -175,14 +175,14 @@ class SearchPanel(ctk.CTkFrame):
                                              width=120, state="disabled")
         self._search_btn.grid(row=0, column=4, padx=(0, th.PAD))
 
-        # Tělo: výsledky vlevo, přehled vpravo
+        # Body: results on the left, overview on the right
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.grid(row=2, column=0, sticky="nsew")
         body.grid_columnconfigure(0, weight=1)
         body.grid_columnconfigure(1, weight=0, minsize=360)
         body.grid_rowconfigure(0, weight=1)
 
-        # -- Výsledky --
+        # -- Results --
         res = th.card(body)
         res.grid(row=0, column=0, sticky="nsew", padx=(0, th.GAP))
         res.grid_columnconfigure(0, weight=1)
@@ -224,7 +224,7 @@ class SearchPanel(ctk.CTkFrame):
         self._tree.bind("<Return>", self._open_detail)
         self._set_tree_headings()
 
-        # Úvodní text (dokud není vybraná složka)
+        # Intro text (until a folder is selected)
         self._intro = th.hint_label(self._stack, t("srch.intro"), ref=self._stack, offset=40)
         self._intro.grid(row=0, column=0, padx=30, pady=40, sticky="n")
         self._intro.lift()
@@ -239,7 +239,7 @@ class SearchPanel(ctk.CTkFrame):
         self._more_btn.grid(row=0, column=1, sticky="e")
         self._more_btn.grid_remove()
 
-        # -- Přehled entit --
+        # -- Entity overview --
         ov = th.card(body, width=360)
         ov.grid(row=0, column=1, sticky="nsew")
         ov.grid_columnconfigure(0, weight=1)
@@ -301,7 +301,7 @@ class SearchPanel(ctk.CTkFrame):
         n = self._summary.get(kind) if hasattr(self, "_summary") else None
         return f"{base} ({n})" if n else base
 
-    # ── Složka a indexace ────────────────────────────────────────────────────
+    # ── Folder and indexing ──────────────────────────────────────────────────
 
     def _choose_dir(self):
         folder = filedialog.askdirectory(title=t("srch.folder_title"))
@@ -309,7 +309,7 @@ class SearchPanel(ctk.CTkFrame):
             self.set_dir(folder)
 
     def set_dir(self, output_dir: str):
-        """Nastaví výstupní složku a na pozadí ji (přírůstkově) zaindexuje."""
+        """Set the output folder and index it (incrementally) in the background."""
         if not output_dir or not os.path.isdir(output_dir):
             return
         output_dir = os.path.normpath(output_dir)
@@ -327,7 +327,7 @@ class SearchPanel(ctk.CTkFrame):
         if not self._dir:
             return
         if self._indexing:
-            # Probíhá indexace jiné složky / znovu → zruš a začni po jejím konci
+            # Indexing of another folder / again is running → cancel and restart once it ends
             self._cancel_index = True
             self.after(200, lambda: self._start_index(force))
             return
@@ -350,7 +350,7 @@ class SearchPanel(ctk.CTkFrame):
                                        cancel=lambda: self._cancel_index or self._closing,
                                        force=force)
                 err = None
-            except Exception as e:          # např. složka jen pro čtení
+            except Exception as e:          # e.g. a read-only folder
                 stats, err = None, str(e)
             if not self._closing:
                 self.after(0, lambda: self._on_index_done(target, stats, err))
@@ -371,7 +371,7 @@ class SearchPanel(ctk.CTkFrame):
         if self._closing:
             return
         if target != self._dir:
-            return                       # mezitím zvolena jiná složka (běží nová indexace)
+            return                       # another folder was selected meanwhile (a new indexing run is in progress)
         self._reindex_btn.configure(state="normal")
         if err:
             self._status.configure(text=t("srch.index_failed").format(err=err),
@@ -398,7 +398,7 @@ class SearchPanel(ctk.CTkFrame):
             text_color=th.TEXT_MUTED)
 
     def _load_meta(self):
-        """Seznam zdrojů do filtru + souhrn entit do přehledu (ve vlákně)."""
+        """Source list for the filter + entity summary for the overview (in a thread)."""
         target = self._dir
 
         def worker():
@@ -431,7 +431,7 @@ class SearchPanel(ctk.CTkFrame):
         self._kind_menu.configure(values=[self._kind_label(k) for k in KINDS])
         self._kind_var.set(self._kind_label(self._kind))
 
-    # ── Hledání ──────────────────────────────────────────────────────────────
+    # ── Search ───────────────────────────────────────────────────────────────
 
     def _selected_files(self):
         lbl = self._source_var.get()
@@ -455,7 +455,7 @@ class SearchPanel(ctk.CTkFrame):
         self._execute(offset=0)
 
     def _execute(self, offset: int):
-        """Spustí poslední dotaz (self._last_query) ve vlákně od daného offsetu."""
+        """Run the last query (self._last_query) in a thread from the given offset."""
         if not self._last_query:
             return
         self._query_gen += 1
@@ -489,7 +489,7 @@ class SearchPanel(ctk.CTkFrame):
 
     def _apply_results(self, gen, offset, rows, total, err):
         if gen != self._query_gen or self._closing:
-            return                      # mezitím spuštěn novější dotaz
+            return                      # a newer query was started meanwhile
         if err:
             self._count_lbl.configure(text=err, text_color=th.RED)
             return
@@ -544,7 +544,7 @@ class SearchPanel(ctk.CTkFrame):
         from .results_panel import _RowDetailDialog
         _RowDetailDialog(self, r["record"], source_label(r["file"]))
 
-    # ── Přehled entit ────────────────────────────────────────────────────────
+    # ── Entity overview ──────────────────────────────────────────────────────
 
     def _on_kind_selected(self, label: str):
         for k in KINDS:
@@ -607,10 +607,10 @@ class SearchPanel(ctk.CTkFrame):
         self._ov_tree.selection_remove(*self._ov_tree.selection())
         self._run_search()
 
-    # ── Ostatní ──────────────────────────────────────────────────────────────
+    # ── Other ────────────────────────────────────────────────────────────────
 
     def shutdown(self):
-        """Zastaví indexaci na pozadí (volá se při zavírání aplikace)."""
+        """Stop background indexing (called when the application closes)."""
         self._closing = True
         self._cancel_index = True
 
@@ -640,7 +640,7 @@ class SearchPanel(ctk.CTkFrame):
             self._source_menu.configure(values=[t("srch.all_sources")])
             self._source_var.set(t("srch.all_sources"))
             self._refresh_kind_menu()
-        # Přeložit názvy zdrojů v zobrazených výsledcích
+        # Translate the source names in the displayed results
         for i, r in enumerate(self._rows):
             if self._tree.exists(str(i)):
                 self._tree.set(str(i), "source", source_label(r["file"]))

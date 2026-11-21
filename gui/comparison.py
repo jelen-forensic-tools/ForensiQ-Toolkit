@@ -19,7 +19,7 @@ CLR_SAME    = "#888888"
 
 
 def _tint(color: str, alpha: float = 0.2, bg: str = BG_CARD) -> str:
-    """Barva smíchaná s pozadím (Tk nezná průhlednost typu #RRGGBBAA)."""
+    """Colour blended with the background (Tk does not support #RRGGBBAA transparency)."""
     c = [int(color[i:i + 2], 16) for i in (1, 3, 5)]
     b = [int(bg[i:i + 2], 16) for i in (1, 3, 5)]
     return "#" + "".join(f"{round(bb + (cc - bb) * alpha):02x}" for cc, bb in zip(c, b))
@@ -143,7 +143,7 @@ class ComparisonPanel(ctk.CTkFrame):
         self._build()
 
     def _build(self):
-        # ── Toolbar: výběr dvou záloh + Porovnat ─────────────────────────────
+        # ── Toolbar: selection of two backups + Compare ──────────────────────
         tb = th.Toolbar(self)
         tb.grid(row=0, column=0, sticky="ew", pady=(0, th.GAP))
 

@@ -1,19 +1,19 @@
 """
-core/ios_ramdisk.py — Forenzní akvizice z nabootovaného SSH ramdisku
-(checkm8 / usbliter8 + ICH_A12_plus_Ramdisk nebo kompatibilní).
+core/ios_ramdisk.py — Forensic acquisition from a booted SSH ramdisk
+(checkm8 / usbliter8 + ICH_A12_plus_Ramdisk or compatible).
 
-Model použití (dělba práce):
-  1. Pwned DFU + boot ramdisku se dělá EXTERNĚ (macOS + hardware):
+Usage model (division of work):
+  1. Pwned DFU + booting the ramdisk are done EXTERNALLY (macOS + hardware):
        ./build.sh ; ./boot.sh ; iproxy 2222 22
-  2. Tento modul se připojí na běžící ramdisk přes SSH (default root@localhost:2222,
-     heslo 'alpine'), spustí `mount_ich`, najde a stáhne forenzní artefakty přes SFTP
-     a spočítá hashe. Výsledky se napojí na stejný results/evidence pipeline jako
-     ostatní extraktory.
+  2. This module connects to the running ramdisk over SSH (default root@localhost:2222,
+     password 'alpine'), runs `mount_ich`, finds and pulls forensic artefacts over SFTP
+     and computes hashes. The results feed the same results/evidence pipeline as
+     the other extractors.
 
-Legitimní forenzní použití na autorizovaných zařízeních (souhlas vlastníka / soudní
-povolení). Data oddíl uzamčeného (BFU) zařízení může být zašifrovaný a nečitelný.
+Legitimate forensic use on authorised devices (owner consent / court order).
+The Data partition of a locked (BFU) device may be encrypted and unreadable.
 
-paramiko je volitelná závislost – pokud chybí, modul to čistě ohlásí.
+paramiko is an optional dependency – if it is missing, the module reports it cleanly.
 """
 from __future__ import annotations
 
@@ -38,9 +38,9 @@ def paramiko_available() -> bool:
     return _HAS_PARAMIKO
 
 
-# ── Moduly (artefakty) ──────────────────────────────────────────────────────
-# Každý: seznam kandidátních cest relativně k Data oddílu + typ ("file"/"dir"),
-# nebo find spec (hledání souboru pod složkou – app kontejnery mají náhodné UUID).
+# ── Modules (artefacts) ──────────────────────────────────────────────────────
+# Each: list of candidate paths relative to the Data partition + type ("file"/"dir"),
+# or a find spec (search for a file under a folder – app containers have random UUIDs).
 IOS_RAMDISK_MODULES = {
     "sms":        "Messages (SMS / iMessage)",
     "contacts":   "Contacts",
@@ -53,7 +53,7 @@ IOS_RAMDISK_MODULES = {
     "keychain":   "Keychain (encrypted)",
 }
 
-# relativní cesty k Data oddílu (root Data odpovídá /private/var na živém iOS)
+# paths relative to the Data partition (Data root corresponds to /private/var on live iOS)
 _SPECS = {
     "sms":       {"type": "file", "paths": ["mobile/Library/SMS/sms.db"]},
     "contacts":  {"type": "file", "paths": ["mobile/Library/AddressBook/AddressBook.sqlitedb"]},
@@ -82,12 +82,12 @@ class RamdiskResult:
         self.success = False
         self.data: list = []        # [{filename, path, size, sha256}]
         self.error = ""
-        self.file_path = ""         # lokální cesta/složka
+        self.file_path = ""         # local path/folder
         self.count = 0
 
 
 class iOSRamdiskAcquirer:
-    """Stáhne forenzní artefakty z běžícího SSH ramdisku přes SFTP."""
+    """Pull forensic artefacts from a running SSH ramdisk over SFTP."""
 
     def __init__(self, output_dir: str,
                  host: str = "localhost", port: int = 2222,
@@ -98,14 +98,14 @@ class iOSRamdiskAcquirer:
         self.port = int(port)
         self.user = user
         self.password = password
-        # Mountpoint Data oddílu po `mount_ich` (konvence ramdisků: /mnt2).
+        # Mount point of the Data partition after `mount_ich` (ramdisk convention: /mnt2).
         self.data_root = data_root.rstrip("/")
         self._stop = threading.Event()
         self._on_log: Optional[Callable] = None
         self._client = None
         self._sftp = None
 
-    # ── Řízení ──────────────────────────────────────────────────────────────
+    # ── Control ─────────────────────────────────────────────────────────────
     def stop(self):
         self._stop.set()
 
@@ -118,7 +118,7 @@ class iOSRamdiskAcquirer:
 
     # ── SSH/SFTP ────────────────────────────────────────────────────────────
     def test_connection(self) -> tuple[bool, str]:
-        """Rychlé ověření SSH spojení (pro tlačítko Test)."""
+        """Quick SSH connection check (for the Test button)."""
         if not _HAS_PARAMIKO:
             return False, t("rd.no_paramiko")
         try:
@@ -147,7 +147,7 @@ class iOSRamdiskAcquirer:
         err = stderr.read().decode("utf-8", "replace")
         return (out + err)
 
-    # ── Hlavní běh ──────────────────────────────────────────────────────────
+    # ── Main run ────────────────────────────────────────────────────────────
     def run(self, modules: list[str],
             on_progress: Callable[[str, int, int], None],
             on_done: Callable,
@@ -207,7 +207,7 @@ class iOSRamdiskAcquirer:
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    # ── Pull jednoho modulu ─────────────────────────────────────────────────
+    # ── Pull one module ─────────────────────────────────────────────────
     def _pull_module(self, module: str) -> RamdiskResult:
         res = RamdiskResult(module)
         spec = _SPECS.get(module)
@@ -239,7 +239,7 @@ class iOSRamdiskAcquirer:
         return res
 
     def _resolve(self, spec: dict) -> list[str]:
-        """Vrátí absolutní vzdálené cesty, které na zařízení existují."""
+        """Return the absolute remote paths that exist on the device."""
         found: list[str] = []
         if spec["type"] == "find":
             root = f"{self.data_root}/{spec['root']}"
@@ -252,7 +252,7 @@ class iOSRamdiskAcquirer:
         for p in spec["paths"]:
             full = f"{self.data_root}/{p}"
             if "*" in full:
-                # jednoduchý glob přes shell
+                # simple glob via the shell
                 out = self._exec(self._client, f"ls -d {full} 2>/dev/null")
                 found += [l.strip() for l in out.splitlines() if l.strip()]
             else:

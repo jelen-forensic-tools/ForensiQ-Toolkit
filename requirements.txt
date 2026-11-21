@@ -5,7 +5,7 @@ openpyxl==3.1.5
 deepdiff==8.1.1
 tkintermapview==1.29
 # iOS device communication (optional – required only for live iOS extraction)
-cryptography  # dešifrování šifrovaných iOS záloh (AES, RFC 3394)
+cryptography  # decryption of encrypted iOS backups (AES, RFC 3394)
 pymobiledevice3
 # SSH/SFTP for the checkm8/usbliter8 ramdisk acquisition (optional)
 paramiko

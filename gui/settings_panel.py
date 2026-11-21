@@ -1,9 +1,9 @@
 """
-gui/settings_panel.py — panel Nastavení.
+gui/settings_panel.py — Settings panel.
 
-Zatím řeší branding reportů: výchozí examinátor/organizace, logo firmy nebo
-vyšetřovatele a přepínače, co se v reportu zobrazí. Hodnoty se ukládají přes
-core.settings (JSON v ~/.forenziq) a čte je generátor reportů.
+Currently handles report branding: default examiner/organisation, company or
+investigator logo and switches for what the report shows. Values are stored via
+core.settings (JSON in ~/.forenziq) and read by the report generator.
 """
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ class SettingsPanel(ctk.CTkFrame):
         th.hint_label(card, t("set.report_desc"), ref=card, offset=2 * th.PAD).grid(
             row=1, column=0, columnspan=3, sticky="ew", padx=th.PAD, pady=(0, 10))
 
-        # Examinátor
+        # Examiner
         th.field_label(card, t("set.examiner")).grid(
             row=2, column=0, sticky="w", padx=(th.PAD, 10), pady=6)
         self._examiner = ctk.CTkEntry(card, height=th.BTN_H, font=th.f_body())
@@ -64,7 +64,7 @@ class SettingsPanel(ctk.CTkFrame):
         th.separator(card).grid(row=4, column=0, columnspan=3, sticky="ew",
                                 padx=th.PAD, pady=(10, 10))
 
-        # Logo firmy / vyšetřovatele
+        # Company / investigator logo
         th.field_label(card, t("set.company_logo")).grid(
             row=5, column=0, sticky="nw", padx=(th.PAD, 10), pady=6)
         logo_box = ctk.CTkFrame(card, fg_color="transparent")
@@ -91,7 +91,7 @@ class SettingsPanel(ctk.CTkFrame):
         th.separator(card).grid(row=6, column=0, columnspan=3, sticky="ew",
                                 padx=th.PAD, pady=(10, 10))
 
-        # Přepínače
+        # Switches
         self._v_company = ctk.BooleanVar(value=True)
         self._v_tool = ctk.BooleanVar(value=True)
         self._v_case = ctk.BooleanVar(value=True)
@@ -102,7 +102,7 @@ class SettingsPanel(ctk.CTkFrame):
         th.checkbox(card, self._v_case, text=t("set.show_case_details")).grid(
             row=9, column=0, columnspan=3, sticky="w", padx=th.PAD, pady=(4, th.PAD))
 
-        # Uložit
+        # Save
         bar = ctk.CTkFrame(scroll, fg_color="transparent")
         bar.grid(row=1, column=0, sticky="ew")
         self._status = ctk.CTkLabel(bar, text="", font=th.f_body(), text_color=th.GREEN)
@@ -139,7 +139,7 @@ class SettingsPanel(ctk.CTkFrame):
                 pass
         self._preview.configure(image=None, text="—")
 
-    # ── Načtení / uložení ───────────────────────────────────────────────────────
+    # ── Load / save ─────────────────────────────────────────────────────────────
     def _load(self):
         cfg = app_settings.load()
         self._examiner.delete(0, "end")
@@ -165,5 +165,5 @@ class SettingsPanel(ctk.CTkFrame):
         self.after(2500, lambda: self._status.configure(text=""))
 
     def refresh_lang(self):
-        # Statické popisky řeší globální retranslate; dynamický jen stav loga.
+        # Static labels are handled by the global retranslate; only the logo state is dynamic.
         self._render_logo()

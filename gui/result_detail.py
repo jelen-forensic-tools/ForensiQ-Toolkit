@@ -109,7 +109,7 @@ class ResultDetailDialog(ctk.CTkToplevel):
                 self._all_rows = data
                 self._render_table(data)
             else:
-                # seznam stringů
+                # list of strings
                 self._all_rows = [{t("res.value_col"): str(v)} for v in data]
                 self._render_table(self._all_rows)
 

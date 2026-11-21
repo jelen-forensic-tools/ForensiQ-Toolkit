@@ -267,11 +267,11 @@ class ExtractionPanel(ctk.CTkFrame):
         )
 
     def log_copy_progress(self, msg: str):
-        """Průběžný log kopírování souborů (voláno z vlákna extraktoru)."""
+        """Running log of file copying (called from the extractor thread)."""
         self._log(msg, "muted")
 
     def log_stopping(self):
-        """Zpráva zobrazená ihned po kliknutí na Zastavit."""
+        """Message shown immediately after clicking Stop."""
         self._log_raw("", "")
         self._log_raw("⚠  " + "─" * 42, "warn")
         self._log(t("ext.stopping_log1"), "warn")
@@ -295,7 +295,7 @@ class ExtractionPanel(ctk.CTkFrame):
         self._status_label.configure(text=done_msg, text_color="#4CAF50")
 
     def show_stopped(self, success_count: int):
-        """Závěrečná zpráva po zastavení – ukazuje, co se stihlo extrahovat."""
+        """Final message after stopping – shows what was extracted in time."""
         elapsed = ""
         if self._extraction_start:
             secs = int((datetime.datetime.now() - self._extraction_start).total_seconds())

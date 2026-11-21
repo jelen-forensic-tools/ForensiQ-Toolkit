@@ -34,7 +34,7 @@ MODULE_ICONS = {
     "ios_photos":      "🖼",
 }
 
-# Mapování modulů na sdílené značkové ikony (assets/icons/<name>.png)
+# Map modules to the shared brand icons (assets/icons/<name>.png)
 ICON_KEYS = {
     "ios_device_info": "device_info",
     "ios_apps":        "apps_installed",
@@ -79,7 +79,7 @@ class iOSPanel(ctk.CTkFrame):
         tb = th.Toolbar(self, progress=True)
         tb.grid(row=0, column=0, sticky="ew", pady=(0, th.GAP))
 
-        # Zdroj: výběr zařízení
+        # Source: device selection
         self._device_lbl = th.field_label(tb.source, t("ios.device_label"))
         self._device_lbl.pack(side="left", padx=(0, 8))
         self._device_var = ctk.StringVar(value=t("ios.no_device"))
@@ -91,7 +91,7 @@ class iOSPanel(ctk.CTkFrame):
         self._device_combo.pack(side="left", fill="x", expand=True, padx=(0, 8))
         th.icon_button(tb.source, "↻", self._refresh_devices).pack(side="left")
 
-        # Stav + akce
+        # Status + actions
         self._lib_label = ctk.CTkLabel(tb.info, text="", font=th.f_small(),
                                        text_color=TEXT_MUTED, anchor="w")
         self._lib_label.pack(side="left")

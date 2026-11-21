@@ -72,7 +72,7 @@ class S30Panel(ctk.CTkFrame):
         tb = th.Toolbar(self, progress=True)
         tb.grid(row=0, column=0, sticky="ew", pady=(0, th.GAP))
 
-        # Zdroj: dump + výstupní složka
+        # Source: dump + output folder
         th.pack_row(
             th.secondary_button(tb.source, t("s30.pick_dump"), self._pick_dump, width=150),
             th.secondary_button(tb.source, t("ui.output"), self._pick_output, width=150),
@@ -84,7 +84,7 @@ class S30Panel(ctk.CTkFrame):
                                           text_color=TEXT_MUTED, anchor="w")
         self._output_label.pack(side="left", padx=(12, 0))
 
-        # Stav + akce
+        # Status + actions
         self._status_bar = ctk.CTkLabel(tb.info, text="", font=th.f_body(),
                                         text_color=TEXT_MUTED, anchor="w")
         self._status_bar.pack(side="left")

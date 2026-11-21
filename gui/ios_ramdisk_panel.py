@@ -1,7 +1,7 @@
 """
-gui/ios_ramdisk_panel.py — Panel pro forenzní akvizici z SSH ramdisku
-(checkm8 / usbliter8). Připojí se na běžící ramdisk přes SSH, spustí mount_ich
-a stáhne vybrané artefakty. Pwned DFU + boot ramdisku se dělá externě (macOS + hw).
+gui/ios_ramdisk_panel.py — Panel for forensic acquisition from an SSH ramdisk
+(checkm8 / usbliter8). Connects to a running ramdisk over SSH, runs mount_ich
+and pulls the selected artefacts. Pwned DFU + ramdisk boot are done externally (macOS + hw).
 """
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ class iOSRamdiskPanel(ctk.CTkFrame):
         tb = th.Toolbar(self)
         tb.grid(row=0, column=0, sticky="ew", pady=(0, th.GAP))
 
-        # Zdroj: výběr výstupní složky + stav (SSH parametry jsou v pravém panelu)
+        # Source: output folder selection + status (SSH parameters are in the right panel)
         th.secondary_button(tb.source, t("ui.output"), self._pick_output,
                             width=150).pack(side="left", padx=(0, 10))
         self._output_label = ctk.CTkLabel(tb.source, text=t("bkp.no_output"), font=th.f_small(),
@@ -79,7 +79,7 @@ class iOSRamdiskPanel(ctk.CTkFrame):
                                         text_color=TEXT_MUTED, anchor="e")
         self._status_bar.pack(side="left")
 
-        # Akce: Test spojení, Stáhnout, Zastavit
+        # Actions: Test connection, Pull, Stop
         self._test_btn = th.secondary_button(tb.actions, t("rd.test"), self._test_connection,
                                              width=120)
         self._btn_run = th.primary_button(tb.actions, t("rd.run"), self._run, width=150)
@@ -102,7 +102,7 @@ class iOSRamdiskPanel(ctk.CTkFrame):
         self._modules.grid(row=0, column=1, sticky="nsew")
         right = self._modules.scroll
 
-        # SSH připojení – kompaktní karta nad moduly
+        # SSH connection – compact card above the modules
         self._modules.add_section(t("rd.conn_section"))
         conn = ctk.CTkFrame(right, fg_color=BG_CARD, corner_radius=th.RADIUS_ITEM)
         conn.grid(row=self._modules.next_row(), column=0, sticky="ew", padx=4, pady=3)
@@ -123,7 +123,7 @@ class iOSRamdiskPanel(ctk.CTkFrame):
         self._pass_var = _field(1, 1, "rd.pass", "alpine")
         self._root_var = _field(2, 0, "rd.data_root", "/mnt2", span=3)
 
-        # Moduly k extrakci
+        # Modules to extract
         self._modules.add_section(t("ui.modules"), all_text=t("ui.all"), none_text=t("ui.none"))
         for key in IOS_RAMDISK_MODULES:
             self._modules.add(key, t(f"rd.mod.{key}"), self._module_vars[key],
@@ -233,7 +233,7 @@ class iOSRamdiskPanel(ctk.CTkFrame):
             return
         ok = sum(1 for r in results if r.success)
         total_files = sum(r.count for r in results)
-        # Souhrnný JSON pro evidence
+        # Summary JSON for the evidence
         try:
             summary = {
                 "acquired_at": datetime.datetime.now().isoformat(timespec="seconds"),

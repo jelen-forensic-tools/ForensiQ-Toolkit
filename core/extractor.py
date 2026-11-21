@@ -9,30 +9,30 @@ from .i18n import t, has
 
 
 EXTRACTION_MODULES = {
-    "device_info":    "Informace o zařízení",
-    "contacts":       "Kontakty",
+    "device_info":    "Device Information",
+    "contacts":       "Contacts",
     "sms":            "SMS / MMS",
-    "call_logs":      "Historie hovorů",
-    "apps":           "Nainstalované aplikace",
-    "media":          "Fotky a videa",
-    "documents":      "Dokumenty",
-    "wifi":           "Wi-Fi sítě",
-    "accounts":       "Účty",
-    "browser":        "Historie prohlížeče",
-    "user_data_tree": "Uživatelská data (se strukturou)",
-    "file_analysis":  "Analýza souborů (EXIF a metadata)",
-    "file_hashes":    "Hashe souborů (MD5, SHA-256)",
-    "deleted_data":   "Smazaná data (root)",
+    "call_logs":      "Call History",
+    "apps":           "Installed Apps",
+    "media":          "Photos & Videos",
+    "documents":      "Documents",
+    "wifi":           "Wi-Fi Networks",
+    "accounts":       "Accounts",
+    "browser":        "Browser History",
+    "user_data_tree": "User Data (with structure)",
+    "file_analysis":  "File Analysis (EXIF & metadata)",
+    "file_hashes":    "File Hashes (MD5, SHA-256)",
+    "deleted_data":   "Deleted Data (root)",
     "whatsapp":       "WhatsApp (root)",
     "viber":          "Viber (root)",
 }
 
-# Agentní moduly – rozšířená extrakce pro novější Android
+# Agent modules – extended extraction for newer Android versions
 AGENT_MODULES = {
-    "adb_backup":    "ADB záloha aplikací",
-    "root_backup":   "Root záloha /data/data (Android 12+)",
-    "app_providers": "Data aplikací (Content Providers)",
-    "usage_stats":   "Statistiky použití aplikací",
+    "adb_backup":    "ADB App Backup",
+    "root_backup":   "Root Backup /data/data (Android 12+)",
+    "app_providers": "App Data (Content Providers)",
+    "usage_stats":   "App Usage Statistics",
     "termux_agent":  "Termux Agent",
 }
 
@@ -289,9 +289,9 @@ class Extractor:
     def _extract_apps(self, r: ExtractionResult):
         packages = self.adb.get_installed_apps(include_system=False)
 
-        # Jediný `dumpsys package` dump pro všechny balíčky místo jednoho volání
-        # na každý balíček (každé je round-trip přes USB). Výstup obsahuje bloky
-        # „Package [<pkg>] (...):“ s řádkem „versionName=...“.
+        # A single `dumpsys package` dump for all packages instead of one call
+        # per package (each is a round trip over USB). The output contains blocks
+        # "Package [<pkg>] (...):" with a "versionName=..." line.
         version_map: dict = {}
         dump = self.adb.shell("dumpsys package packages")
         cur_pkg = None
@@ -334,9 +334,9 @@ class Extractor:
         media_dir = os.path.join(self.output_dir, "media")
         os.makedirs(media_dir, exist_ok=True)
 
-        # Prohledej i /sdcard/Android/media (tam ukládají média aplikace jako
-        # WhatsApp, Telegram apod.). Filtruj podle přípon, aby se z aplikačních
-        # složek netahaly databáze a cache; vynech systémové náhledy.
+        # Also search /sdcard/Android/media (apps such as WhatsApp or Telegram
+        # store media there). Filter by extension so that databases and caches
+        # are not pulled from app folders; skip system thumbnails.
         roots = "/sdcard/DCIM /sdcard/Pictures /sdcard/Movies /sdcard/Android/media"
         name_clause = " -o ".join(f"-iname '*.{ext}'" for ext in self.MEDIA_EXTS)
         paths_raw = self.adb.shell(
@@ -354,8 +354,8 @@ class Extractor:
         for remote_path in files:
             if self._stopped():
                 break
-            # Zachovej jedinečný název (soubory ze stejného jména v různých
-            # složkách by se jinak navzájem přepsaly).
+            # Keep the name unique (files with the same name in different
+            # folders would otherwise overwrite each other).
             filename = os.path.basename(remote_path)
             if filename in used_names:
                 stem, ext = os.path.splitext(filename)
@@ -378,7 +378,7 @@ class Extractor:
         if failed:
             self._log(f"  ⚠ {len(failed)} souborů se nepodařilo stáhnout (originály).")
 
-        # Ulož manifest
+        # Save the manifest
         manifest = {"total_found": len(files), "total_pulled": pulled,
                     "total_failed": len(failed), "failed": failed, "files": files}
         path = os.path.join(self.output_dir, "media_manifest.json")
@@ -506,18 +506,18 @@ class Extractor:
 
     def _extract_user_data_tree(self, r: ExtractionResult):
         """
-        Stáhne KOMPLETNÍ obsah /sdcard se zachováním adresářové struktury,
-        včetně složky Android (Android/media, a co je dostupné z Android/data,
-        Android/obb). Nic se záměrně nevynechává.
+        Pull the COMPLETE content of /sdcard with the folder structure preserved,
+        including the Android folder (Android/media and whatever is accessible in
+        Android/data, Android/obb). Nothing is skipped on purpose.
 
-        Postupuje po položkách nejvyšší úrovně kvůli průběžnému logu a odolnosti
-        (chyba v jedné složce nezastaví ostatní). Výsledný počet se spočítá
-        z reálně stažených souborů na disku, takže je deterministický.
+        Works through the top-level items one by one for a continuous log and
+        robustness (an error in one folder does not stop the others). The final
+        count is computed from the files actually pulled to disk, so it is deterministic.
         """
         tree_dir = os.path.join(self.output_dir, "user_data_tree")
         os.makedirs(tree_dir, exist_ok=True)
 
-        # Seznam všech položek v /sdcard včetně skrytých (-A), bez . a ..
+        # List of all items in /sdcard including hidden ones (-A), without . and ..
         ls_out = self.adb.shell("ls -A /sdcard/ 2>/dev/null")
         entries = [f.strip() for f in ls_out.split("\n")
                    if f.strip() and f.strip() not in (".", "..")]
@@ -540,8 +540,8 @@ class Extractor:
             if ok:
                 self._log(f"    ✓ {name}")
             else:
-                # adb pull může část složky stáhnout i při chybě (např. Android/data
-                # s omezeným přístupem) – proto to NEbereme jako důvod k přeskočení.
+                # adb pull may pull part of a folder even on error (e.g. Android/data
+                # with restricted access) – so this is NOT treated as a reason to skip.
                 errors.append({"path": remote, "error": err_msg})
                 self._log(f"    ⚠ {name} – částečně/nedostupné: {err_msg}")
             manifest_entries.append({
@@ -550,7 +550,7 @@ class Extractor:
                 "status":      "ok" if ok else "partial",
             })
 
-        # Deterministický počet: spočítej, co je skutečně na disku
+        # Deterministic count: count what is actually on disk
         pulled_files = sum(len(files) for _, _, files in os.walk(tree_dir))
         pulled_folders = sum(1 for _, dirs, _ in os.walk(tree_dir) for _ in dirs)
 
@@ -580,19 +580,19 @@ class Extractor:
 
     def _extract_file_analysis(self, r: ExtractionResult):
         """
-        Analyzuje soubory z již stažených dat (media/ nebo user_data_tree/).
-        Pokud žádná stažená data neexistují, stáhne vzorové obrázky z /sdcard/DCIM.
-        Extrahuje EXIF metadata (GPS, datum, fotoaparát) a základní stat metadata.
+        Analyse files from already pulled data (media/ or user_data_tree/).
+        If no pulled data exists, pull sample images from /sdcard/DCIM.
+        Extracts EXIF metadata (GPS, date, camera) and basic stat metadata.
         """
         from PIL import Image, ExifTags, TiffImagePlugin
         import struct
 
         IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".heic", ".webp", ".bmp"}
 
-        # ── Pomocné funkce ────────────────────────────────────────────────────
+        # ── Helper functions ──────────────────────────────────────────────────────
 
         def _gps_to_decimal(vals, ref: str) -> float:
-            """Převede GPS souřadnice z DMS na desetinná čísla."""
+            """Convert GPS coordinates from DMS to decimal degrees."""
             try:
                 def _ratio(v):
                     if isinstance(v, TiffImagePlugin.IFDRational):
@@ -622,19 +622,19 @@ class Extractor:
                 if not raw_exif:
                     return meta
 
-                # Mapování tagů na čitelné názvy
+                # Map tags to readable names
                 tag_map = {v: k for k, v in ExifTags.TAGS.items()}
 
                 def _get(name):
                     tid = tag_map.get(name)
                     return raw_exif.get(tid) if tid else None
 
-                # Datum pořízení
+                # Date taken
                 dt_str = _get("DateTimeOriginal") or _get("DateTime")
                 if dt_str:
                     meta["date_taken"] = str(dt_str)
 
-                # Výrobce a model fotoaparátu
+                # Camera make and model
                 make  = _get("Make")
                 model = _get("Model")
                 if make:  meta["camera_make"]  = str(make).strip()
@@ -644,7 +644,7 @@ class Extractor:
                 sw = _get("Software")
                 if sw: meta["software"] = str(sw).strip()
 
-                # Technické parametry
+                # Technical parameters
                 for tag_name, key in [
                     ("ExposureTime",  "exposure_time"),
                     ("FNumber",       "f_number"),
@@ -708,7 +708,7 @@ class Extractor:
             return meta
 
         def _file_stat(path: str) -> dict:
-            """Základní metadata souboru ze systému."""
+            """Basic file metadata from the file system."""
             try:
                 st = os.stat(path)
                 return {
@@ -720,7 +720,7 @@ class Extractor:
             except Exception:
                 return {}
 
-        # ── Najdi soubory ke analýze ──────────────────────────────────────────
+        # ── Find files to analyse ─────────────────────────────────────────────
 
         search_dirs = [
             os.path.join(self.output_dir, "media"),
@@ -742,7 +742,7 @@ class Extractor:
                     else:
                         other_files.append(fpath)
 
-        # Pokud nebyla stažena žádná média, stáhni vzorové obrázky z DCIM
+        # If no media was pulled, pull sample images from DCIM
         temp_dir = None
         if not image_files:
             temp_dir = os.path.join(self.output_dir, "_exif_tmp")
@@ -761,7 +761,7 @@ class Extractor:
                 if self.adb.pull(rp, lp):
                     image_files.append(lp)
 
-        # ── Analyzuj soubory ──────────────────────────────────────────────────
+        # ── Analyse the files ──────────────────────────────────────────────────
 
         results_img   = []
         results_other = []
@@ -778,7 +778,7 @@ class Extractor:
             entry.update(_read_exif(fpath))
             results_img.append(entry)
 
-        for fpath in other_files[:500]:   # limit pro ne-obrázky
+        for fpath in other_files[:500]:   # limit for non-images
             if self._stopped():
                 break
             ext = os.path.splitext(fpath)[1].lower()
@@ -792,7 +792,7 @@ class Extractor:
 
         all_results = results_img + results_other
 
-        # ── Souhrn ────────────────────────────────────────────────────────────
+        # ── Summary ───────────────────────────────────────────────────────────
 
         with_gps  = [e for e in results_img if "gps_latitude" in e]
         with_exif = [e for e in results_img if "date_taken" in e or "camera_make" in e]
@@ -819,7 +819,7 @@ class Extractor:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(out, f, ensure_ascii=False, indent=2)
 
-        # Pro GUI vrátíme zjednodušený seznam
+        # Return a simplified list for the GUI
         r.data    = all_results
         r.file_path = path
         r.success = True
@@ -829,8 +829,8 @@ class Extractor:
 
     def _extract_file_hashes(self, r: ExtractionResult):
         """
-        Vypočítá MD5 a SHA-256 pro všechny již stažené soubory v output_dir.
-        Pokud žádné soubory nebyly staženy, stáhne vzorové soubory z /sdcard/DCIM.
+        Compute MD5 and SHA-256 for all files already pulled into output_dir.
+        If no files were pulled, pull sample files from /sdcard/DCIM.
         """
         import hashlib
 
@@ -848,7 +848,7 @@ class Extractor:
             except Exception as e:
                 return {"md5": "error", "sha256": str(e)}
 
-        # Shromáždi všechny stažené soubory
+        # Collect all pulled files
         search_dirs = [
             os.path.join(self.output_dir, "media"),
             os.path.join(self.output_dir, "documents"),
@@ -863,7 +863,7 @@ class Extractor:
                 for fname in files:
                     local_files.append(os.path.join(root, fname))
 
-        # Pokud nic nebylo staženo, stáhni malý vzorek z DCIM
+        # If nothing was pulled, pull a small sample from DCIM
         temp_dir = None
         if not local_files:
             temp_dir = os.path.join(self.output_dir, "_hash_tmp")
@@ -880,7 +880,7 @@ class Extractor:
                 if self.adb.pull(rp, lp):
                     local_files.append(lp)
 
-        # Hashuj soubory
+        # Hash the files
         records = []
         for fpath in local_files:
             if self._stopped():
@@ -1042,17 +1042,17 @@ class Extractor:
 
     def _extract_deleted_data(self, r: ExtractionResult):
         """
-        Obnova smazaných dat z rootovaného zařízení.
+        Recovery of deleted data from a rooted device.
 
-        Metody:
-        1. Root check přes `su -c id`
-        2. Kopírování SQLite databází z /data/data přes `su cp` + adb pull
-           - mmssms.db   → SMS s deleted=1
-           - contacts2.db → kontakty s deleted=1
-           - contacts2.db / calllog.db → hovory s deleted=1
-        3. Stažení WAL souborů — binární carving pro textové řetězce
-           (telefonní čísla, URL, text zpráv)
-        4. Skenování /sdcard/.trash a dalších odpadkových košů
+        Methods:
+        1. Root check via `su -c id`
+        2. Copy SQLite databases from /data/data via `su cp` + adb pull
+           - mmssms.db   → SMS with deleted=1
+           - contacts2.db → contacts with deleted=1
+           - contacts2.db / calllog.db → calls with deleted=1
+        3. Pull WAL files — binary carving of text strings
+           (phone numbers, URLs, message text)
+        4. Scan /sdcard/.trash and other recycle bins
         """
         import re
         import sqlite3 as _sqlite3
@@ -1089,7 +1089,7 @@ class Extractor:
             r.file_path = path
             return
 
-        # ── Pomocná funkce: kopírování chráněného souboru přes su ─────────────
+        # ── Helper: copy a protected file via su ──────────────────────────────
         def _su_pull(remote: str, local: str) -> bool:
             tmp = f"/sdcard/_pa_tmp_{os.path.basename(remote)}"
             self.adb.shell(f"su -c 'cp \"{remote}\" \"{tmp}\" 2>/dev/null'")
@@ -1097,17 +1097,17 @@ class Extractor:
             self.adb.shell(f"rm -f '{tmp}' 2>/dev/null")
             return ok and os.path.exists(local)
 
-        # ── Pomocná funkce: carving textu z WAL binárního souboru ─────────────
+        # ── Helper: carve text from a binary WAL file ─────────────────────────
         def _wal_carving(wal_path: str) -> list[dict]:
             """
-            Prochází WAL soubor po bytech a hledá UTF-8 textové sekvence
-            delší než 6 znaků — typicky obsah SMS, URL, jména.
+            Walk the WAL file byte by byte and look for UTF-8 text sequences
+            longer than 6 characters — typically SMS content, URLs, names.
             """
             found = []
             try:
                 with open(wal_path, "rb") as f:
                     data = f.read()
-                # Hledej tisknutelné ASCII/UTF-8 řetězce délky >= 6
+                # Look for printable ASCII/UTF-8 strings of length >= 6
                 for m in re.finditer(rb"[\x20-\x7e\xc0-\xfd]{6,}", data):
                     try:
                         text = m.group(0).decode("utf-8", errors="ignore").strip()
@@ -1120,7 +1120,7 @@ class Extractor:
                         pass
             except Exception as e:
                 results["errors"].append(f"WAL carving error: {e}")
-            # Odeber duplicity
+            # Remove duplicates
             seen = set()
             unique = []
             for item in found:
@@ -1164,7 +1164,7 @@ class Extractor:
             except Exception as e:
                 results["errors"].append(f"mmssms.db open error: {e}")
 
-            # WAL soubor ke SMS databázi
+            # WAL file of the SMS database
             sms_wal = os.path.join(deleted_dir, "mmssms.db-wal")
             if _su_pull(
                 "/data/data/com.android.providers.telephony/databases/mmssms.db-wal",
@@ -1176,7 +1176,7 @@ class Extractor:
                     [{**c, "source": "mmssms.db-wal"} for c in carved]
                 )
 
-        # ── 2b. Kontakty — contacts2.db ───────────────────────────────────────
+        # ── 2b. Contacts — contacts2.db ───────────────────────────────────────
         contacts_db = os.path.join(deleted_dir, "contacts2.db")
         if _su_pull(
             "/data/data/com.android.providers.contacts/databases/contacts2.db",
@@ -1202,7 +1202,7 @@ class Extractor:
                 except Exception as e:
                     results["errors"].append(f"Contacts deleted query: {e}")
 
-                # Hovory — contacts2.db nebo samostatný calllog.db
+                # Calls — contacts2.db or a separate calllog.db
                 for calls_table_query in [
                     "SELECT number, date, duration, type FROM calls WHERE deleted=1",
                 ]:
@@ -1233,7 +1233,7 @@ class Extractor:
             except Exception as e:
                 results["errors"].append(f"contacts2.db open error: {e}")
 
-        # Alternativní calllog.db
+        # Alternative calllog.db
         calllog_db = os.path.join(deleted_dir, "calllog.db")
         if _su_pull(
             "/data/data/com.android.providers.calllogbackup/databases/calllog.db",
@@ -1273,7 +1273,7 @@ class Extractor:
             except Exception as e:
                 results["errors"].append(f"calllog.db open error: {e}")
 
-        # ── 3. Skenování košů na /sdcard ──────────────────────────────────────
+        # ── 3. Scan recycle bins on /sdcard ───────────────────────────────────
         trash_candidates = [
             "/sdcard/.trash",
             "/sdcard/.Trash",
@@ -1302,7 +1302,7 @@ class Extractor:
                         "local_path": local,
                     })
 
-        # ── Výsledky ──────────────────────────────────────────────────────────
+        # ── Results ───────────────────────────────────────────────────────────
         total = sum(
             len(v) for v in results["recovered"].values()
         )
@@ -1319,10 +1319,10 @@ class Extractor:
 
     def _extract_adb_backup(self, r: ExtractionResult):
         """
-        Vytvoří ADB zálohu pomocí 'adb backup' a parsuje ji.
-        Záloha je zlib-komprimovaný tar archiv obsahující databáze a soubory aplikací.
-        Funguje na Android 4–11. Na Android 12+ vyžaduje potvrzení na zařízení
-        a záloha může být prázdná kvůli omezením systému.
+        Create an ADB backup with 'adb backup' and parse it.
+        The backup is a zlib-compressed tar archive with app databases and files.
+        Works on Android 4–11. On Android 12+ it needs confirmation on the device
+        and the backup may be empty because of system restrictions.
         """
         import zlib
         import tarfile
@@ -1332,11 +1332,11 @@ class Extractor:
         extracted_dir = os.path.join(self.output_dir, "adb_backup_extracted")
         os.makedirs(extracted_dir, exist_ok=True)
 
-        # Upozornit uživatele, aby potvrdil zálohu na zařízení
+        # Ask the user to confirm the backup on the device
         if self._on_notify:
             self._on_notify(t("x.ab_confirm"))
 
-        # Spustit zálohu – uživatel musí potvrdit na zařízení
+        # Start the backup – the user must confirm it on the device
         self.adb._run(
             ["-s", self.adb.connected_device,
              "backup", "-nosystem", "-noapk", "-all", "-f", backup_path],
@@ -1347,7 +1347,7 @@ class Extractor:
             r.error = t("x.ab_failed")
             return
 
-        # ── Parsování .ab souboru ─────────────────────────────────────────────
+        # ── Parse the .ab file ────────────────────────────────────────────────
         try:
             with open(backup_path, "rb") as f:
                 magic = f.readline()
@@ -1364,7 +1364,7 @@ class Extractor:
 
                 raw = f.read()
 
-            # Prázdná záloha – Android 12+ blokuje adb backup pro většinu aplikací
+            # Empty backup – Android 12+ blocks adb backup for most apps
             if not raw:
                 msg = t("x.ab_empty") + "\n" + t("x.skip")
                 if self._on_notify:
@@ -1398,7 +1398,7 @@ class Extractor:
             r.error = str(e)
             return
 
-        # ── Parsování SQLite databází z zálohy ───────────────────────────────
+        # ── Parse SQLite databases from the backup ───────────────────────────
         import sqlite3 as _sqlite3
 
         db_results = {}
@@ -1444,15 +1444,15 @@ class Extractor:
 
     def _extract_root_backup(self, r: ExtractionResult):
         """
-        Záloha kompletního /data/data přes 'adb shell su -c tar'.
-        Vyžaduje rootnuté zařízení. Funguje na Android 5–15 včetně Android 12+,
-        kde 'adb backup' nefunguje.
-        Postup:
-          1. Ověří root přístup (su -c id).
-          2. Vytvoří tar.gz na zařízení do /sdcard/forenziq_root.tar.gz.
-          3. Stáhne soubor přes adb pull.
-          4. Extrahuje, vypíše soubory a parsuje nalezené SQLite databáze.
-          5. Smaže dočasný soubor ze zařízení.
+        Backup of the complete /data/data via 'adb shell su -c tar'.
+        Requires a rooted device. Works on Android 5–15 including Android 12+,
+        where 'adb backup' does not work.
+        Steps:
+          1. Verify root access (su -c id).
+          2. Create a tar.gz on the device at /sdcard/forenziq_root.tar.gz.
+          3. Pull the file via adb pull.
+          4. Extract it, list the files and parse the SQLite databases found.
+          5. Delete the temporary file from the device.
         """
         import tarfile
         import io
@@ -1463,7 +1463,7 @@ class Extractor:
         extracted_dir  = os.path.join(self.output_dir, "root_backup_extracted")
         os.makedirs(extracted_dir, exist_ok=True)
 
-        # ── 1. Ověření root přístupu ──────────────────────────────────────────
+        # ── 1. Verify root access ─────────────────────────────────────────────
         if self._on_notify:
             self._on_notify(t("x.root_checking"))
 
@@ -1481,8 +1481,8 @@ class Extractor:
         if self._on_notify:
             self._on_notify(t("x.root_ok"))
 
-        # ── 2. Vytvoření tar archivu na zařízení ──────────────────────────────
-        # Ignorujeme chyby čtení (některé soubory jsou zamčené systémem)
+        # ── 2. Create the tar archive on the device ───────────────────────────
+        # Ignore read errors (some files are locked by the system)
         rc, out, err = self.adb._run(
             ["-s", self.adb.connected_device, "shell",
              f"su -c 'tar -czf {REMOTE_ARCHIVE} /data/data/ 2>/dev/null; echo DONE'"],
@@ -1495,7 +1495,7 @@ class Extractor:
             r.error = msg
             return
 
-        # ── 3. Stažení archivu ────────────────────────────────────────────────
+        # ── 3. Pull the archive ───────────────────────────────────────────────
         if self._on_notify:
             self._on_notify(t("x.pulling"))
 
@@ -1513,7 +1513,7 @@ class Extractor:
             )
             return
 
-        # ── 4. Extrakce a parsování ───────────────────────────────────────────
+        # ── 4. Extract and parse ──────────────────────────────────────────────
         if self._on_notify:
             self._on_notify(t("x.parsing"))
 
@@ -1538,14 +1538,14 @@ class Extractor:
             r.error = msg
             return
         finally:
-            # ── 5. Smazání dočasného souboru ze zařízení ──────────────────────
+            # ── 5. Delete the temporary file from the device ──────────────────
             self.adb._run(
                 ["-s", self.adb.connected_device, "shell",
                  f"su -c 'rm -f {REMOTE_ARCHIVE}'"],
                 timeout=15,
             )
 
-        # ── Parsování SQLite databází ─────────────────────────────────────────
+        # ── Parse SQLite databases ────────────────────────────────────────────
         db_results = {}
         for db_path in db_files:
             if self._stopped():
@@ -1590,9 +1590,9 @@ class Extractor:
 
     def _extract_app_providers(self, r: ExtractionResult):
         """
-        Dotazuje se na content providery populárních aplikací a systémové providery.
-        Stahuje také záložní soubory z /sdcard (WhatsApp, Telegram, Signal, Viber…).
-        Funguje na Android 4–14 bez rootu.
+        Query the content providers of popular apps and system providers.
+        Also pulls backup files from /sdcard (WhatsApp, Telegram, Signal, Viber…).
+        Works on Android 4–14 without root.
         """
         import re
 
@@ -1602,7 +1602,7 @@ class Extractor:
             "errors":            [],
         }
 
-        # ── Systémové a rozšířené content providery ───────────────────────────
+        # ── System and extended content providers ─────────────────────────────
         providers = {
             "calendar_events":  "content://com.android.calendar/events --projection title:dtstart:dtend:description:eventLocation",
             "calendar_reminders": "content://com.android.calendar/reminders --projection eventId:minutes:method",
@@ -1614,14 +1614,14 @@ class Extractor:
             "call_log_ext":     "content://call_log/calls --projection number:date:duration:type:geocoded_location:subscription_id",
         }
 
-        # Přidej provider pro WhatsApp (různé verze)
+        # Add the WhatsApp provider (different versions)
         wa_providers = {
             "whatsapp_messages":  "content://com.whatsapp.provider.media/item",
             "whatsapp_contacts":  "content://com.whatsapp.provider.media/contact",
             "whatsapp_status":    "content://com.whatsapp.provider.media/status",
         }
 
-        # Messenger providery
+        # Messenger providers
         other_providers = {
             "signal_recipients":  "content://org.thoughtcrime.securesms/recipient",
             "viber_calls":        "content://com.viber.voip/calls",
@@ -1650,7 +1650,7 @@ class Extractor:
             if rows:
                 results["content_providers"][name] = rows
 
-        # ── Záložní soubory na /sdcard ────────────────────────────────────────
+        # ── Backup files on /sdcard ───────────────────────────────────────────
         backup_paths = {
             "WhatsApp":         "/sdcard/WhatsApp",
             "Telegram":         "/sdcard/Telegram",
@@ -1670,7 +1670,7 @@ class Extractor:
             if not ls or "No such" in ls:
                 continue
             items = [i.strip() for i in ls.split("\n") if i.strip()]
-            # Stáhnout zálohu aplikace
+            # Pull the app backup
             local_dir = os.path.join(self.output_dir, "app_backups", app_name)
             os.makedirs(local_dir, exist_ok=True)
             pulled = 0
@@ -1704,9 +1704,9 @@ class Extractor:
 
     def _extract_usage_stats(self, r: ExtractionResult):
         """
-        Extrahuje statistiky použití aplikací a přístupu k oprávněním.
-        Zahrnuje: doby používání, frekvence spouštění, přístup k poloze/kameře/mikrofonu.
-        Funguje na Android 5+ bez rootu.
+        Extract app usage statistics and permission access.
+        Includes: usage time, launch frequency, location/camera/microphone access.
+        Works on Android 5+ without root.
         """
         import re
 
@@ -1718,7 +1718,7 @@ class Extractor:
             "network_usage":   [],
         }
 
-        # ── Statistiky použití aplikací ───────────────────────────────────────
+        # ── App usage statistics ──────────────────────────────────────────────
         raw = self.adb.shell("dumpsys usagestats 2>/dev/null", timeout=30)
         current_pkg = None
         for line in (raw or "").split("\n"):
@@ -1746,7 +1746,7 @@ class Extractor:
 
         results["usage_summary"].sort(key=lambda x: x.get("total_hours", 0), reverse=True)
 
-        # ── AppOps – přístupy k oprávněním (kamera, mikrofon, poloha…) ───────
+        # ── AppOps – permission access (camera, microphone, location…) ───────
         sensitive_ops = {
             op: t(f"perm.{op}") for op in (
                 "CAMERA", "RECORD_AUDIO", "ACCESS_FINE_LOCATION",
@@ -1775,12 +1775,12 @@ class Extractor:
                             "mode": mode_m.group(1) if mode_m else "",
                         })
 
-        # Odfiltruj balíčky bez citlivých přístupů
+        # Filter out packages without sensitive access
         results["app_ops"] = {
             k: v for k, v in results["app_ops"].items() if v
         }
 
-        # ── Nedávná aktivita ──────────────────────────────────────────────────
+        # ── Recent activity ───────────────────────────────────────────────────
         activity_raw = self.adb.shell(
             "dumpsys activity recents 2>/dev/null | head -80", timeout=15
         )
@@ -1793,7 +1793,7 @@ class Extractor:
                     "activity": act_m.group(1) if act_m else "",
                 })
 
-        # ── Spotřeba baterie ──────────────────────────────────────────────────
+        # ── Battery usage ─────────────────────────────────────────────────────
         battery_raw = self.adb.shell(
             "dumpsys batterystats --charged 2>/dev/null | grep 'Uid u0a' | head -40",
             timeout=20,
@@ -1806,7 +1806,7 @@ class Extractor:
                     "percent": uid_m.group(2),
                 })
 
-        # ── Síťová spotřeba ───────────────────────────────────────────────────
+        # ── Network usage ─────────────────────────────────────────────────────
         net_raw = self.adb.shell(
             "dumpsys netstats 2>/dev/null | grep 'ident' | head -30", timeout=15
         )
@@ -1839,10 +1839,10 @@ class Extractor:
 
     def _extract_termux_agent(self, r: ExtractionResult):
         """
-        Pokud je na zařízení nainstalován Termux + Termux:API, použije jej
-        jako privilegovaný agent pro extrakci dat nedostupných běžným ADB.
-        Termux:API poskytuje přístup ke kontaktům, SMS, hovorům, poloze,
-        notifikacím a dalším datům bez rootu.
+        If Termux + Termux:API are installed on the device, use them as a
+        privileged agent to extract data that is not available through plain ADB.
+        Termux:API gives access to contacts, SMS, calls, location,
+        notifications and other data without root.
         """
         results = {
             "termux_available":     False,
@@ -1859,7 +1859,7 @@ class Extractor:
             "errors":               [],
         }
 
-        # ── Kontrola dostupnosti ──────────────────────────────────────────────
+        # ── Availability check ──────────────────────────────────────────────
         pkgs = self.adb.shell("pm list packages 2>/dev/null")
         has_termux     = "com.termux" in (pkgs or "")
         has_termux_api = "com.termux.api" in (pkgs or "")
@@ -1876,20 +1876,20 @@ class Extractor:
             return
 
         def _termux(cmd: str, timeout: int = 20) -> str:
-            """Spustí příkaz v Termuxu přes ADB."""
+            """Run a command in Termux over ADB."""
             return self.adb.shell(
                 f"run-as com.termux sh -c '{cmd}' 2>/dev/null", timeout=timeout
             )
 
         def _am_broadcast(action: str, extras: str = "") -> str:
-            """Alternativa přes broadcast pro Termux:API."""
+            """Alternative via a broadcast for Termux:API."""
             return self.adb.shell(
                 f"am broadcast -n com.termux.api/.TermuxApiReceiver "
                 f"--es method {action} {extras} 2>/dev/null",
                 timeout=15,
             )
 
-        # ── Kontakty přes Termux:API ──────────────────────────────────────────
+        # ── Contacts via Termux:API ───────────────────────────────────────────
         try:
             raw = _termux("termux-contact-list 2>/dev/null", timeout=30)
             if raw and raw.strip().startswith("["):
@@ -1898,7 +1898,7 @@ class Extractor:
         except Exception as e:
             results["errors"].append(f"contacts: {e}")
 
-        # ── SMS přes Termux:API ───────────────────────────────────────────────
+        # ── SMS via Termux:API ────────────────────────────────────────────────
         try:
             raw = _termux("termux-sms-list -l 500 2>/dev/null", timeout=60)
             if raw and raw.strip().startswith("["):
@@ -1907,7 +1907,7 @@ class Extractor:
         except Exception as e:
             results["errors"].append(f"sms: {e}")
 
-        # ── Historie hovorů ───────────────────────────────────────────────────
+        # ── Call history ──────────────────────────────────────────────────────
         try:
             raw = _termux("termux-call-log -l 200 2>/dev/null", timeout=30)
             if raw and raw.strip().startswith("["):
@@ -1934,7 +1934,7 @@ class Extractor:
         except Exception as e:
             results["errors"].append(f"battery: {e}")
 
-        # ── Wi-Fi informace ───────────────────────────────────────────────────
+        # ── Wi-Fi information ───────────────────────────────────────────────────
         try:
             raw = _termux("termux-wifi-connectioninfo 2>/dev/null", timeout=10)
             if raw and "{" in raw:
@@ -1952,7 +1952,7 @@ class Extractor:
         except Exception as e:
             results["errors"].append(f"notifications: {e}")
 
-        # ── Schránka ──────────────────────────────────────────────────────────
+        # ── Clipboard ─────────────────────────────────────────────────────────
         try:
             results["clipboard"] = _termux("termux-clipboard-get 2>/dev/null", timeout=8)
         except Exception as e:

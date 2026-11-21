@@ -1,13 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec pro ForenziQ – vytvoří JEDEN samostatný .exe (onefile),
-který nevyžaduje nainstalovaný Python ani žádné balíčky ani další složky.
+PyInstaller spec for ForenziQ – builds ONE standalone .exe (onefile) that needs
+no installed Python, packages or additional folders.
 
-Sestavení:
+Build:
     python -m PyInstaller ForenziQ.spec --noconfirm
 
-Výstup:  dist/ForenziQ.exe   (jediný soubor, vše uvnitř)
-Distribuce: předat uživateli samotný ForenziQ.exe.
+Output:  dist/ForenziQ.exe   (a single file, everything inside)
+Distribution: give the user just ForenziQ.exe.
 """
 import os
 from PyInstaller.utils.hooks import collect_all
@@ -16,28 +16,28 @@ datas = []
 binaries = []
 hiddenimports = []
 
-# Balíčky, které mají vlastní data/assets nebo mnoho podmodulů –
-# collect_all je stáhne kompletně (jinak PyInstaller část vynechá).
+# Packages with their own data/assets or many submodules –
+# collect_all pulls them in completely (otherwise PyInstaller misses parts).
 for pkg in ("customtkinter", "tkintermapview", "pymobiledevice3", "paramiko"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b
     hiddenimports += h
 
-# Přibal platform-tools (adb.exe, fastboot.exe, DLL) do balíčku pod "adb/".
+# Bundle platform-tools (adb.exe, fastboot.exe, DLLs) under "adb/" – the adb/ folder is local only (not in git).
 if os.path.isdir("adb"):
     datas += [("adb", "adb")]
 
-# Složka assets (ikona okna + značkové ikony formátů) – načítá se za běhu.
+# Assets folder (window icon + brand icons of backup formats) – loaded at run time.
 if os.path.isdir("assets"):
     datas += [("assets", "assets")]
 
-# Pomocné balíčky, které bývají importovány dynamicky.
+# Helper packages that tend to be imported dynamically.
 hiddenimports += [
     "PIL._tkinter_finder",
     "reportlab.graphics.barcode",
-    "core.s30.report",          # S30+ PDF report – importován až za běhu
-    "core.ios_backup_crypto",   # dešifrování šifrovaných iOS záloh – import za běhu
+    "core.s30.report",          # S30+ PDF report – imported at run time
+    "core.ios_backup_crypto",   # decryption of encrypted iOS backups – imported at run time
     "cryptography.hazmat.primitives.keywrap",
     "cryptography.hazmat.primitives.ciphers",
 ]
@@ -70,7 +70,7 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,          # GUI aplikace – bez konzolového okna
+    console=False,          # GUI application – no console window
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

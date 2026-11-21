@@ -125,8 +125,8 @@ class _WrongPassword(Exception):
 
 
 class iOSBackupParser:
-    """Parses iTunes/Finder iOS backups. Šifrované zálohy dešifruje heslem
-    zálohy (core.ios_backup_crypto)."""
+    """Parses iTunes/Finder iOS backups. Encrypted backups are decrypted with the
+    backup password (core.ios_backup_crypto)."""
 
     def __init__(self, backup_path: str, output_dir: str, password: str = ""):
         self.backup_path = backup_path
@@ -134,9 +134,9 @@ class iOSBackupParser:
         self.password = password or ""
         self._stop_event = threading.Event()
         self._on_log: Optional[Callable] = None
-        self._crypto = None          # EncryptedBackup instance pro šifrované zálohy
-        self._dec_dir: Optional[str] = None   # temp složka s dešifrovanými soubory
-        self._dec_cache: dict = {}   # fileID → cesta k dešifrovanému souboru
+        self._crypto = None          # EncryptedBackup instance for encrypted backups
+        self._dec_dir: Optional[str] = None   # temp folder with decrypted files
+        self._dec_cache: dict = {}   # fileID → path of the decrypted file
 
     def stop(self):
         self._stop_event.set()
@@ -168,7 +168,7 @@ class iOSBackupParser:
                 "last_backup":     str(info.get("Last Backup Date", "")),
                 "itunes_version":  info.get("iTunes Version", ""),
             }
-            # Manifest.plist → šifrování + zda mělo zařízení nastavený zámek
+            # Manifest.plist → encryption + whether the device had a passcode set
             try:
                 with open(os.path.join(self.backup_path, "Manifest.plist"), "rb") as f:
                     mf = plistlib.load(f)
@@ -210,7 +210,7 @@ class iOSBackupParser:
                 on_done([], t("iosx.no_manifest"))
                 return
 
-            # Šifrovaná záloha → dešifruj Manifest.db heslem zálohy
+            # Encrypted backup → decrypt Manifest.db with the backup password
             if self.is_encrypted():
                 if not self.password:
                     on_done([], t("iosx.need_password"))
@@ -249,10 +249,10 @@ class iOSBackupParser:
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    # ── Dešifrování šifrované zálohy ─────────────────────────────────────────
+    # ── Decrypting an encrypted backup ────────────────────────────────────────
 
     def _init_decryption(self, manifest_db: str) -> str:
-        """Odemkne keybag heslem, dešifruje Manifest.db do temp a vrátí jeho cestu."""
+        """Unlock the keybag with the password, decrypt Manifest.db into temp and return its path."""
         from .ios_backup_crypto import EncryptedBackup
         self._crypto = EncryptedBackup(self.backup_path, self.password)
         if not self._crypto.password_ok:
@@ -277,8 +277,8 @@ class iOSBackupParser:
         self._dec_cache = {}
 
     def _fid_to_path(self, manifest_db: str, fid: str) -> Optional[str]:
-        """Lokální cesta k souboru podle fileID. U šifrované zálohy ho nejdřív
-        dešifruje do temp a vrátí dešifrovanou kopii."""
+        """Local path of a file by fileID. For an encrypted backup the file is first
+        decrypted into temp and the decrypted copy is returned."""
         if not fid:
             return None
         if self._crypto is None:

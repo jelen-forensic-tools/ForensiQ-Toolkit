@@ -66,9 +66,9 @@ class BypassPanel(ctk.CTkFrame):
         # ── Body (left + right columns) ──────────────────────────────────────
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.grid(row=1, column=0, sticky="nsew")
-        # Levý sloupec má PEVNOU šířku (weight 0) → délka popisu metody vpravo
-        # nemění jeho šířku. Pravý sloupec bere zbytek (weight 1), takže se také
-        # nemění podle obsahu. Tím panel při přepínání metod neskáče.
+        # The left column has a FIXED width (weight 0) → the length of the method
+        # description on the right does not change it. The right column takes the rest
+        # (weight 1), so it does not depend on content either. The panel does not jump.
         body.grid_columnconfigure(0, weight=0, minsize=430)
         body.grid_columnconfigure(1, weight=1)
         body.grid_rowconfigure(0, weight=1)
@@ -193,8 +193,8 @@ class BypassPanel(ctk.CTkFrame):
         ctk.CTkLabel(frame, text=icon, font=ctk.CTkFont(size=22)).grid(
             row=0, column=0, rowspan=2, padx=(12, 8), pady=10
         )
-        # Pevný wraplength (ne auto_wrap) → žádná <Configure> smyčka, stabilní
-        # výška karet a čisté vykreslení při scrollování.
+        # Fixed wraplength (not auto_wrap) → no <Configure> loop, stable
+        # card height and clean rendering while scrolling.
         title_lbl = ctk.CTkLabel(
             frame, text=title,
             font=ctk.CTkFont(size=12, weight="bold"),
@@ -538,6 +538,6 @@ class BypassPanel(ctk.CTkFrame):
     # ── Language refresh ──────────────────────────────────────────────────────
 
     def refresh_lang(self):
-        """Překlad na místě – statické popisky řeší globální retranslate walk,
-        tady jen znovu vykreslíme dynamický detail vybrané metody (title/desc)."""
+        """Retranslate in place – static labels are handled by the global retranslate walk,
+        here we only re-render the dynamic detail of the selected method (title/desc)."""
         self._select_method(self._selected_method.get())

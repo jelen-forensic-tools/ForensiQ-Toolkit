@@ -1,6 +1,6 @@
 """
-gui/iconset.py — sdílené načítání značkových ikon modulů (assets/icons/<key>.png).
-Funguje ze zdrojáků i z .exe balíčku. Vrací CTkImage, nebo None když ikona chybí.
+gui/iconset.py — shared loading of the brand module icons (assets/icons/<key>.png).
+Works from source and from the .exe bundle. Returns a CTkImage, or None if the icon is missing.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def _icons_dir() -> str:
 
 
 def module_icon(key: str, size: int = 34):
-    """CTkImage pro daný klíč modulu, nebo None (pak panel použije emoji fallback)."""
+    """CTkImage for the given module key, or None (the panel then uses an emoji fallback)."""
     ck = (key, size)
     if ck in _cache:
         return _cache[ck]

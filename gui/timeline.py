@@ -93,7 +93,7 @@ def load_events(output_dir: str) -> list[dict]:
 
 
 def _display_value(key: str, value) -> str:
-    """Hodnota pole pro zobrazení v detailu (překlad typických hodnot)."""
+    """Field value for display in the detail (translation of typical values)."""
     if isinstance(value, bool):
         return t("val.yes") if value else t("val.no")
     if key == "type" and value == "image":
@@ -224,7 +224,7 @@ class TimelinePanel(ctk.CTkFrame):
         tb = th.Toolbar(self)
         tb.grid(row=0, column=0, sticky="ew", pady=(0, th.GAP))
 
-        # Zdroj: složka extrakce
+        # Source: extraction folder
         self._load_btn = th.secondary_button(tb.source, t("tl.load"), self._load_from_dialog,
                                              width=150)
         self._load_btn.pack(side="left", padx=(0, 10))
@@ -232,7 +232,7 @@ class TimelinePanel(ctk.CTkFrame):
                                        text_color=TEXT_MUTED, font=th.f_small(), anchor="w")
         self._dir_label.pack(side="left", padx=(0, 16))
 
-        # Filtry zdrojů (vlevo u zdroje)
+        # Source filters (left, next to the source)
         self._filter_frame = ctk.CTkFrame(tb.source, fg_color="transparent")
         self._filter_frame.pack(side="left")
         self._build_filter_checkboxes()
@@ -242,7 +242,7 @@ class TimelinePanel(ctk.CTkFrame):
                                        font=th.f_small())
         self._stats_lbl.pack(side="right")
 
-        # Ovládání pohledu (vpravo u akcí)
+        # View controls (right, next to the actions)
         self._reset_btn = th.secondary_button(tb.actions, t("tl.full_range"),
                                               self._reset_view, width=110)
         self._zoom_in_btn = th.secondary_button(tb.actions, t("tl.zoom_in"),
@@ -281,8 +281,8 @@ class TimelinePanel(ctk.CTkFrame):
         self._canvas.bind("<ButtonPress-3>",  lambda e: self._reset_view())
         self._canvas.bind("<Motion>",         self._on_hover)
         self._canvas.bind("<Leave>",          self._hide_tip)
-        # Pozn.: <Button-1> je totéž co <ButtonPress-1> – klik na tečku se proto
-        # vyhodnocuje až při uvolnění tlačítka, pokud se myší netáhlo (_on_release).
+        # Note: <Button-1> is the same as <ButtonPress-1> – a click on a dot is therefore
+        # evaluated on button release, if the mouse was not dragged (_on_release).
 
         self._placeholder = ctk.CTkLabel(
             self._main,

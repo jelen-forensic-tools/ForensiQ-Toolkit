@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-ResultsPanel – dvousloupcový panel výsledků extrakce.
-Vlevo: inline náhled dat (KV nebo tabulka).
-Vpravo: seznam karet modulů s výběrem.
+ResultsPanel – two-column panel with extraction results.
+Left: inline data preview (key/value or table).
+Right: list of module cards to choose from.
 """
 import os
 import shutil
@@ -110,7 +110,7 @@ class ResultsPanel(ctk.CTkFrame):
     # ── UI construction ───────────────────────────────────────────────────────
 
     def _build(self):
-        # ── Toolbar: výstup + reporty vlevo, důkazní manifest vpravo ─────────
+        # ── Toolbar: output + reports on the left, evidence manifest on the right ─────────
         tb = th.Toolbar(self, source=False)
         tb.grid(row=0, column=0, sticky="ew", pady=(0, th.GAP))
 
@@ -126,7 +126,7 @@ class ResultsPanel(ctk.CTkFrame):
         self._btn_open.pack(side="left")
         self._report_lbl.pack(side="left", padx=(24, 8))
         th.pack_row(self._btn_html, self._btn_pdf, self._btn_excel)
-        # pack_row začíná bez mezery – první tlačítko navazuje na popisek
+        # pack_row starts without a gap – the first button follows the label
         self._btn_html.pack_configure(padx=(0, 0))
 
         self._btn_evidence = th.secondary_button(tb.actions, t("ev.generate_btn"),
@@ -135,7 +135,7 @@ class ResultsPanel(ctk.CTkFrame):
                                                _cb(self._on_verify), width=140)
         th.pack_row(self._btn_evidence, self._btn_verify)
 
-        # ── Body: detail vlevo, karty vpravo ─────────────────────────────────
+        # ── Body: detail on the left, cards on the right ─────────────────────────────────
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.grid(row=1, column=0, sticky="nsew")
         body.grid_columnconfigure(0, weight=3, minsize=380)
@@ -146,14 +146,14 @@ class ResultsPanel(ctk.CTkFrame):
         self._build_cards(body)
 
     def _build_detail(self, parent):
-        """Levý panel – inline náhled výsledku."""
+        """Left panel – inline preview of a result."""
         self._detail_card = ctk.CTkFrame(parent, fg_color=BG_CARD, corner_radius=th.RADIUS_CARD)
         self._detail_card.grid(row=0, column=0, sticky="nsew", padx=(0, th.GAP))
         self._detail_card.grid_propagate(False)
         self._detail_card.grid_columnconfigure(0, weight=1)
         self._detail_card.grid_rowconfigure(2, weight=1)
 
-        # Header řádek (název, count, hledání, open JSON)
+        # Header row (name, count, search, open JSON)
         hdr = ctk.CTkFrame(self._detail_card, fg_color="transparent")
         hdr.grid(row=0, column=0, sticky="ew", padx=th.PAD, pady=(th.PAD - 4, 8))
         hdr.grid_columnconfigure(1, weight=1)
@@ -184,7 +184,7 @@ class ResultsPanel(ctk.CTkFrame):
 
         th.separator(self._detail_card).grid(row=1, column=0, sticky="ew", padx=th.PAD)
 
-        # Tělo – sem se dynamicky renderuje obsah
+        # Body – content is rendered here dynamically
         self._detail_body = ctk.CTkFrame(
             self._detail_card, fg_color="transparent",
         )
@@ -195,7 +195,7 @@ class ResultsPanel(ctk.CTkFrame):
         self._show_placeholder()
 
     def _build_cards(self, parent):
-        """Pravý panel – seznam karet modulů."""
+        """Right panel – list of module cards."""
         right = ctk.CTkFrame(parent, fg_color="transparent")
         right.grid(row=0, column=1, sticky="nsew")
         right.grid_columnconfigure(0, weight=1)
@@ -214,7 +214,7 @@ class ResultsPanel(ctk.CTkFrame):
             text_color=TEXT_MUTED, font=th.f_body(),
         ).grid(row=0, column=0, pady=40)
 
-    # ── Aktualizace výsledků ──────────────────────────────────────────────────
+    # ── Updating results ──────────────────────────────────────────────────────
 
     # Modules that are extracted/used internally but not shown as result cards
     _HIDDEN_MODULES = {"user_data_tree"}
@@ -226,7 +226,7 @@ class ResultsPanel(ctk.CTkFrame):
         self._selected_card = None
         self._tree = None
 
-        # Vyčistit karty
+        # Clear the cards
         for w in self._cards_scroll.winfo_children():
             w.destroy()
 
@@ -242,7 +242,7 @@ class ResultsPanel(ctk.CTkFrame):
         for i, r in enumerate(results):
             self._build_card(r, i)
 
-        # Automaticky vyber první úspěšný výsledek
+        # Automatically select the first successful result
         first_ok = next((r for r in results if r.success and r.data is not None), None)
         if first_ok:
             self._show_result(first_ok)
@@ -258,7 +258,7 @@ class ResultsPanel(ctk.CTkFrame):
         card.grid(row=row, column=0, sticky="ew", padx=4, pady=3)
         card.grid_columnconfigure(1, weight=1)
 
-        # Značková PNG ikona (stejná jako v ostatních modulech), s emoji fallbackem
+        # Branded PNG icon (same as in the other modules), with an emoji fallback
         img = module_icon(result.module, size=30)
         if img is not None:
             icon_lbl = ctk.CTkLabel(card, text="", image=img, width=36)
@@ -285,7 +285,7 @@ class ResultsPanel(ctk.CTkFrame):
             anchor="w", wraplength=220,
         ).grid(row=1, column=1, sticky="w", pady=(0, 10), padx=(0, 8))
 
-        # Status dot vpravo
+        # Status dot on the right
         ctk.CTkLabel(
             card, text="●",
             font=ctk.CTkFont(size=10),
@@ -306,7 +306,7 @@ class ResultsPanel(ctk.CTkFrame):
         card.configure(fg_color="#1e2d50")
         self._selected_card = card
 
-    # ── Renderování detailu ───────────────────────────────────────────────────
+    # ── Rendering the detail ──────────────────────────────────────────────────
 
     def _show_result(self, result):
         self._selected = result
@@ -314,7 +314,7 @@ class ResultsPanel(ctk.CTkFrame):
         self._columns = []
         self._tree = None
 
-        # Hlavička
+        # Header
         self._detail_title.configure(text=result.label)
         self._right_hdr.grid()
         if result.success:
@@ -330,7 +330,7 @@ class ResultsPanel(ctk.CTkFrame):
         )
         self._search_var.set("")
 
-        # Vyčistit tělo
+        # Clear the body
         for w in self._detail_body.winfo_children():
             w.destroy()
 
@@ -637,7 +637,7 @@ class ResultsPanel(ctk.CTkFrame):
             tag = "even" if i % 2 == 0 else "odd"
             self._tree.insert("", "end", values=vals, tags=(tag,))
 
-    # ── Filtrování a řazení ───────────────────────────────────────────────────
+    # ── Filtering and sorting ─────────────────────────────────────────────────
 
     def _filter(self):
         if not self._tree or not self._all_rows:
@@ -673,7 +673,7 @@ class ResultsPanel(ctk.CTkFrame):
         if self._selected and self._selected.file_path:
             os.startfile(self._selected.file_path)
 
-    # ── Jazykový refresh ──────────────────────────────────────────────────────
+    # ── Language refresh ──────────────────────────────────────────────────────
 
     def refresh_lang(self):
         self._btn_open.configure(text=t("topbar.open_output"))
@@ -686,7 +686,7 @@ class ResultsPanel(ctk.CTkFrame):
 
 
 class _RowDetailDialog(ctk.CTkToplevel):
-    """Malé okno s detailem jednoho záznamu (double-click v tabulce)."""
+    """Small window with the detail of one record (double-click in the table)."""
 
     def __init__(self, master, row: dict, module_label: str):
         super().__init__(master)
