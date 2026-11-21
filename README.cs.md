@@ -122,4 +122,17 @@ a souhlasíte s ním.
 
 ## Licence
 
-Software je poskytován „TAK, JAK JE“, bez jakékoli záruky vhodnosti pro konkrétní účel či prodejnosti.
+ForenziQ je licencován pod **[PolyForm Noncommercial License 1.0.0](LICENSE)**.
+
+- ✅ Volně k použití, studiu, úpravám a sdílení pro **nekomerční** účely – osobní použití, výzkum,
+  výuka a použití státními institucemi, organizacemi pro veřejnou bezpečnost (např. policií),
+  neziskovými organizacemi a vzdělávacími či veřejnými výzkumnými institucemi.
+- ❌ **Komerční použití není povoleno** – včetně prodeje softwaru, upravených verzí či odvozených děl,
+  jejich zahrnutí do placeného produktu nebo služby a použití pro placenou komerční činnost.
+- 💼 Pro komerční použití kontaktujte autora přes GitHub kvůli samostatné komerční licenci.
+
+Software je poskytován „tak, jak je“, bez jakékoli záruky (viz [LICENSE](LICENSE)). Závazné je
+anglické znění licence.
+
+**Komponenty třetích stran:** složka `adb/` obsahuje Android SDK Platform-Tools od společnosti Google,
+které se řídí vlastními podmínkami (viz `adb/NOTICE.txt`) a výše uvedená licence se na ně nevztahuje.

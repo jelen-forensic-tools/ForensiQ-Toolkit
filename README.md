@@ -122,5 +122,16 @@ to these terms.
 
 ## License
 
-This software is provided "AS IS", without any warranty of fitness for a particular purpose or
-merchantability.
+ForenziQ is licensed under the **[PolyForm Noncommercial License 1.0.0](LICENSE)**.
+
+- ✅ Free to use, study, modify and share for **noncommercial** purposes – personal use, research,
+  education, and use by government institutions, public safety organisations (e.g. police),
+  charities and educational or public research institutions.
+- ❌ **Commercial use is not permitted** – including selling the software, modified versions or
+  derived works, bundling it into a paid product or service, or using it for paid commercial work.
+- 💼 For commercial use, please contact the author via GitHub for a separate commercial license.
+
+The software is provided "as is", without any warranty (see [LICENSE](LICENSE)).
+
+**Third-party components:** the `adb/` folder contains Android SDK Platform-Tools by Google, which are
+distributed under their own terms (see `adb/NOTICE.txt`) and are not covered by the license above.
