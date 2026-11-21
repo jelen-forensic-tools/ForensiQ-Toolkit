@@ -52,3 +52,6 @@ sc6531-dump-analyzer/
 # Ukázková data pro screenshoty (generují se skriptem)
 tools/screenshots/cases/
 tools/screenshots/demo_settings.json
+
+# Android SDK Platform-Tools (Google) - nejsou v repu; stahnout zvlast, do .exe se pribali pri buildu
+adb/

@@ -53,7 +53,8 @@ pip install -r requirements.txt
 python main.py
 ```
 
-nebo spusťte `spustit.bat`. ADB (Android platform-tools) je přiložené ve složce `adb/`.
+nebo spusťte `spustit.bat`. Pro Android stáhněte [SDK Platform-Tools](https://developer.android.com/tools/releases/platform-tools) a rozbalte je do složky
+`adb/` v projektu (nebo je přidejte do `PATH`) – ADB není součástí tohoto repozitáře.
 
 **Samostatný spustitelný soubor** – sestavení jediného `ForenziQ.exe` (na cílovém PC není potřeba Python):
 
@@ -134,5 +135,6 @@ ForenziQ je licencován pod **[PolyForm Noncommercial License 1.0.0](LICENSE)**.
 Software je poskytován „tak, jak je“, bez jakékoli záruky (viz [LICENSE](LICENSE)). Závazné je
 anglické znění licence.
 
-**Komponenty třetích stran:** složka `adb/` obsahuje Android SDK Platform-Tools od společnosti Google,
-které se řídí vlastními podmínkami (viz `adb/NOTICE.txt`) a výše uvedená licence se na ně nevztahuje.
+**Komponenty třetích stran:** Android SDK Platform-Tools (ADB) od společnosti Google nejsou součástí
+tohoto repozitáře; pokud jsou přibalené do `ForenziQ.exe`, řídí se vlastními podmínkami Googlu a výše
+uvedená licence se na ně nevztahuje.

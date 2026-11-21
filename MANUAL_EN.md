@@ -104,8 +104,14 @@ or double-click `spustit.bat` (uses the Python launcher `py`, or `python` from P
 
 ### 3.3 ADB (Android Debug Bridge)
 
-The `adb/` folder in the project contains Android platform-tools, which ForenziQ uses automatically.
-Alternatively, ADB can be on the system `PATH`. The ADB status is shown at the bottom of the sidebar.
+ADB is **not part of the source repository** (it is Google software with its own license). When running
+from source, download **SDK Platform-Tools for Windows** from Google (https://developer.android.com/tools/releases/platform-tools) and either
+
+- extract the contents of the `platform-tools` folder into an `adb/` folder in the project
+  (so that `adb/adb.exe` exists) – ForenziQ uses it automatically, or
+- add the `platform-tools` folder to the system `PATH`.
+
+The ADB status is shown at the bottom of the sidebar. The standalone `ForenziQ.exe` already contains ADB.
 
 ### 3.4 Building the `.exe` yourself
 
@@ -114,7 +120,8 @@ pip install pyinstaller
 python -m PyInstaller ForenziQ.spec --noconfirm --clean
 ```
 
-The result is `dist/ForenziQ.exe` (a single file, ~60 MB).
+The result is `dist/ForenziQ.exe` (a single file, ~60 MB). If the `adb/` folder exists at build time,
+ADB is bundled into the `.exe`.
 
 ---
 

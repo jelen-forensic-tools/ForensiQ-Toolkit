@@ -105,8 +105,14 @@ nebo dvojklikem na `spustit.bat` (použije Python launcher `py`, případně `py
 
 ### 3.3 ADB (Android Debug Bridge)
 
-Složka `adb/` v projektu obsahuje Android platform-tools, které ForenziQ používá automaticky. ADB může být
-také v systémové proměnné `PATH`. Stav ADB je zobrazen dole v postranním panelu.
+ADB **není součástí repozitáře se zdrojovými kódy** (jde o software Googlu s vlastní licencí). Při
+spuštění ze zdrojů si stáhněte **SDK Platform-Tools pro Windows** od Googlu (https://developer.android.com/tools/releases/platform-tools) a buď
+
+- rozbalte obsah složky `platform-tools` do složky `adb/` v projektu (aby existoval `adb/adb.exe`) –
+  ForenziQ ho použije automaticky, nebo
+- přidejte složku `platform-tools` do systémové proměnné `PATH`.
+
+Stav ADB je zobrazen dole v postranním panelu. Samostatný `ForenziQ.exe` už ADB obsahuje.
 
 ### 3.4 Sestavení `.exe`
 
@@ -115,7 +121,8 @@ pip install pyinstaller
 python -m PyInstaller ForenziQ.spec --noconfirm --clean
 ```
 
-Výsledkem je `dist/ForenziQ.exe` (jediný soubor, cca 60 MB).
+Výsledkem je `dist/ForenziQ.exe` (jediný soubor, cca 60 MB). Pokud při sestavení existuje složka
+`adb/`, ADB se do `.exe` přibalí.
 
 ---
 

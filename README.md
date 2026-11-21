@@ -53,7 +53,8 @@ pip install -r requirements.txt
 python main.py
 ```
 
-or run `spustit.bat`. ADB (Android platform-tools) is included in the `adb/` folder.
+or run `spustit.bat`. For Android, download [SDK Platform-Tools](https://developer.android.com/tools/releases/platform-tools) and extract them into an
+`adb/` folder in the project (or add them to `PATH`) – ADB is not part of this repository.
 
 **Standalone executable** – build a single-file `ForenziQ.exe` (no Python needed on the target PC):
 
@@ -133,5 +134,6 @@ ForenziQ is licensed under the **[PolyForm Noncommercial License 1.0.0](LICENSE)
 
 The software is provided "as is", without any warranty (see [LICENSE](LICENSE)).
 
-**Third-party components:** the `adb/` folder contains Android SDK Platform-Tools by Google, which are
-distributed under their own terms (see `adb/NOTICE.txt`) and are not covered by the license above.
+**Third-party components:** Android SDK Platform-Tools (ADB) by Google are not part of this repository;
+when bundled into `ForenziQ.exe` they remain under Google's own terms and are not covered by the license
+above.
