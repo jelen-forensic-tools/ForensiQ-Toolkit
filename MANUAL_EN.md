@@ -1,505 +1,507 @@
-# ForenziQ – Practical User Guide
+# ForenziQ – User Guide
 
 > **Version 1.0 · For authorised forensic analysis only**
+>
+> 🇨🇿 Česká verze: [MANUAL_CS.md](MANUAL_CS.md)
+
+All screenshots in this guide were taken with a **fictitious demo case** (device "Demo Phone X1",
+reserved fictional phone numbers, `example.com` addresses). They contain no real data.
 
 ---
 
 ## Contents
 
-1. [Introduction and Legal Notice](#1-introduction-and-legal-notice)
-2. [System Requirements](#2-system-requirements)
-3. [Installation and Launch](#3-installation-and-launch)
-4. [Preparing the Device](#4-preparing-the-device)
-5. [Interface Overview](#5-interface-overview)
-6. [Tab: Overview (Dashboard)](#6-tab-overview-dashboard)
-7. [Tab: Extraction](#7-tab-extraction)
-8. [Tab: Results](#8-tab-results)
-9. [Tab: Backup Import](#9-tab-backup-import)
-10. [Tab: Comparison](#10-tab-comparison)
-11. [Tab: Timeline](#11-tab-timeline)
-12. [Tab: Map](#12-tab-map)
-13. [Tab: Lock Bypass](#13-tab-lock-bypass)
-14. [Wireless Connection (Wi-Fi ADB)](#14-wireless-connection-wi-fi-adb)
-15. [Recommended Workflow](#15-recommended-workflow)
-16. [Common Issues and Solutions](#16-common-issues-and-solutions)
+1. [Introduction and legal notice](#1-introduction-and-legal-notice)
+2. [System requirements](#2-system-requirements)
+3. [Installation and launch](#3-installation-and-launch)
+4. [Preparing an Android device](#4-preparing-an-android-device)
+5. [Interface overview](#5-interface-overview)
+6. [Device Overview](#6-device-overview)
+7. [Data Extraction (Android over ADB)](#7-data-extraction-android-over-adb)
+8. [Extraction Results, reports and evidence integrity](#8-extraction-results-reports-and-evidence-integrity)
+9. [Search across data](#9-search-across-data)
+10. [Backup Import (Android vendor backups)](#10-backup-import-android-vendor-backups)
+11. [iOS Extraction (live device)](#11-ios-extraction-live-device)
+12. [iOS Backup (iTunes / Finder), incl. encrypted backups](#12-ios-backup-itunes--finder-incl-encrypted-backups)
+13. [iOS Ramdisk (checkm8)](#13-ios-ramdisk-checkm8)
+14. [Android dump analyzer](#14-android-dump-analyzer)
+15. [Nokia S30+ dump analyzer](#15-nokia-s30-dump-analyzer)
+16. [Backup Comparison](#16-backup-comparison)
+17. [Timeline](#17-timeline)
+18. [GPS Location Map](#18-gps-location-map)
+19. [Screen Lock Bypass](#19-screen-lock-bypass)
+20. [Settings (report branding)](#20-settings-report-branding)
+21. [Wireless connection (Wi-Fi ADB)](#21-wireless-connection-wi-fi-adb)
+22. [Recommended workflow](#22-recommended-workflow)
+23. [Data handling and privacy](#23-data-handling-and-privacy)
+24. [Troubleshooting](#24-troubleshooting)
 
 ---
 
-## 1. Introduction and Legal Notice
+## 1. Introduction and legal notice
 
-**ForenziQ** is a forensic tool for extracting and analysing data from Android devices via ADB (Android Debug Bridge). It supports:
+**ForenziQ** is a desktop toolkit for acquiring and analysing data from mobile devices:
 
-- live data extraction from a connected device
-- importing data from backup files created by various manufacturers
-- visualising events on a timeline and a map
-- comparing two consecutive extractions to detect changes
-- generating reports (HTML, PDF, Excel)
-- forensic screen-lock and FRP bypass
+- live extraction from Android devices over ADB (USB or Wi-Fi),
+- analysis of Android physical dumps (raw / GPT / sparse images, ext4),
+- import of Android vendor backups (Samsung, Huawei, Xiaomi, Google, …),
+- iOS: live extraction, iTunes/Finder backups (including **encrypted** backups) and SSH-ramdisk acquisition,
+- Nokia S30+ feature phones (Spreadtrum SC6531E flash dumps),
+- analysis: full-text **search** across all sources, timeline, GPS map, comparison of two extractions,
+- reports (HTML, PDF, Excel) and an **evidence manifest** (MD5 + SHA-256) for chain of custody.
 
-### ⚠ Legal Notice
+The user interface is available in **English** (default) and **Czech**.
 
-> This software is intended **exclusively for lawful forensic analysis** of Android devices for which you have **explicit authorisation** (your own device, owner consent, court order, or equivalent legal basis). Using this software without the device owner's consent is illegal and may constitute a criminal offence. The author accepts **no responsibility** for unlawful use. By running this software you confirm your agreement with these terms.
+### ⚠ Legal notice
+
+> This software is intended **exclusively for lawful forensic analysis** of devices for which you have
+> **explicit authorisation** (your own device, the owner's consent, a court order or an equivalent legal
+> basis). Using it without such authorisation is illegal and may constitute a criminal offence. The author
+> accepts **no responsibility** for unlawful use. By running the software you agree to these terms.
 
 ---
 
-## 2. System Requirements
+## 2. System requirements
 
 | Requirement | Minimum |
 |---|---|
-| Operating System | Windows 10 / 11 (64-bit) |
-| Python | 3.11 or later |
-| USB port | USB-A or USB-C |
+| Operating system | Windows 10 / 11 (64-bit) |
+| Python (when running from source) | 3.11 or later |
 | RAM | 4 GB (8 GB recommended) |
 | Disk space | 500 MB + space for extracted data |
-| Internet | Only required for map tile loading (OpenStreetMap) |
+| Internet | Not required. Only the **Map** downloads map tiles from OpenStreetMap. |
 
-**Python dependencies:**
+**Python packages** (`requirements.txt`):
 
-```
-customtkinter>=5.2.2
-Pillow>=11.2.1
-reportlab>=4.2.2
-openpyxl>=3.1.5
-deepdiff>=8.1.1
-tkintermapview>=1.29
-```
+| Package | Purpose |
+|---|---|
+| customtkinter | User interface |
+| Pillow | Images, EXIF metadata, thumbnails |
+| reportlab | PDF reports |
+| openpyxl | Excel export |
+| deepdiff | Backup comparison |
+| tkintermapview | GPS map |
+| cryptography | Decrypting encrypted iOS backups |
+| pymobiledevice3 *(optional)* | Live iOS extraction |
+| paramiko *(optional)* | iOS SSH ramdisk acquisition |
 
 ---
 
-## 3. Installation and Launch
+## 3. Installation and launch
 
-### 3.1 Install dependencies
+### 3.1 Standalone `.exe` (no Python needed)
+
+If you received `ForenziQ.exe`, just run it. Everything – including ADB – is bundled inside the single file.
+
+### 3.2 Running from source
 
 ```bash
 pip install -r requirements.txt
-```
-
-### 3.2 ADB (Android Debug Bridge)
-
-ADB must be available on the system PATH or inside the `adb/` folder within the project. Verify with:
-
-```bash
-adb version
-```
-
-If the command fails, download Android Platform Tools from Google and add the path to the `PATH` environment variable.
-
-### 3.3 Launch the application
-
-```bash
 python main.py
 ```
 
----
+or double-click `spustit.bat` (uses the Python launcher `py`, or `python` from PATH).
 
-## 4. Preparing the Device
+### 3.3 ADB (Android Debug Bridge)
 
-Before connecting the device to your computer you must enable **USB Debugging**.
+The `adb/` folder in the project contains Android platform-tools, which ForenziQ uses automatically.
+Alternatively, ADB can be on the system `PATH`. The ADB status is shown at the bottom of the sidebar.
 
-### 4.1 How to enable USB Debugging
+### 3.4 Building the `.exe` yourself
 
-1. Open **Settings → About phone** (or "About device")
-2. Find **Build number** and tap it **7 times** — this unlocks Developer Options
-3. Go to **Settings → Developer Options**
-4. Toggle **USB Debugging** on
-5. Connect the device to the computer via USB
-6. A prompt will appear on the phone — tap **Allow**
-
-> **Tip:** On some devices (Samsung, Xiaomi, etc.) Developer Options may be in a different location. Search the Settings app for "USB Debugging".
-
-### 4.2 USB troubleshooting
-
-- Use a data-capable USB cable (not a charge-only cable)
-- Try a different USB port on the computer
-- On the phone, set the USB connection mode to **File Transfer (MTP)**, not charging
-- Install the device manufacturer's USB driver (e.g. Samsung Kies, Huawei HiSuite, etc.)
-
----
-
-## 5. Interface Overview
-
-The application window consists of two areas:
-
-```
-┌─────────────────────────────────────────────────────┐
-│  [Overview] [Extraction] [Results] [Backup]          │  ← navigation tabs
-│  [Comparison] [Timeline] [Map] [Bypass]              │
-│                                                      │
-│  [CS / EN]  [Wi-Fi]  ●  Device name                 │  ← language switch + ADB status
-├─────────────────────────────────────────────────────┤
-│                                                      │
-│              Main working area                       │
-│                                                      │
-└─────────────────────────────────────────────────────┘
+```bash
+pip install pyinstaller
+python -m PyInstaller ForenziQ.spec --noconfirm --clean
 ```
 
-**Language switch (CS / EN)** — switches all UI text instantly, no restart required.
-
-**ADB indicator** — shows the connection state:
-- 🟢 Device connected (shows model name)
-- 🔴 No device
-- 🟡 Connecting…
+The result is `dist/ForenziQ.exe` (a single file, ~60 MB).
 
 ---
 
-## 6. Tab: Overview (Dashboard)
+## 4. Preparing an Android device
 
-Once a device is connected, the dashboard shows:
+1. Open **Settings → About phone** and tap **Build number** 7 times (unlocks Developer options).
+2. In **Settings → Developer options** enable **USB debugging**.
+3. Connect the phone with a data-capable USB cable.
+4. Unlock the phone and confirm the **Allow USB debugging** prompt.
 
-| Field | Description |
-|---|---|
-| Model | Commercial device name |
-| Android | OS version |
-| IMEI | Unique network identifier |
-| Serial number | Hardware identifier |
-| CPU | Processor and architecture |
-| RAM | Total memory |
-| Storage | Total / free space |
-| Encryption | /data partition encryption status |
-| Battery | Current charge in % |
+> **Tips:** Use a data cable (not charge-only), try another USB port, set the USB mode to *File transfer*,
+> and install the manufacturer's USB driver if the device does not appear.
 
 ---
 
-## 7. Tab: Extraction
+## 5. Interface overview
 
-### 7.1 Extraction modules
+![Interface overview](docs/screenshots/01_dashboard.png)
 
-Select which data types to extract:
-
-| Module | Extracted data |
-|---|---|
-| **Device info** | System properties, model, IMEI, CPU, RAM, storage |
-| **Contacts** | Phone numbers and email addresses |
-| **SMS/MMS** | Text and multimedia messages |
-| **Call logs** | Incoming / outgoing / missed calls |
-| **Apps** | List of installed applications |
-| **Media** | Photos and videos (file copies) |
-| **Documents** | PDF, Office documents, text files |
-| **Wi-Fi networks** | Saved SSIDs and security types |
-| **Accounts** | Configured email and social accounts |
-| **Browser** | Browsing history with URLs and visit dates |
-| **File tree** | Directory structure of /sdcard |
-| **File analysis** | EXIF metadata and GPS coordinates from media |
-| **File hashes** | MD5 and SHA-256 checksums |
-| **Deleted data** | Deleted file recovery *(requires root)* |
-
-**Agent modules** (extended Android features):
-
-| Module | Description |
-|---|---|
-| ADB Backup | Application data packages |
-| App Providers | Data via content providers |
-| Usage stats | Application launch statistics |
-| Termux Agent | Extended terminal-based capabilities |
-
-### 7.2 Extraction procedure
-
-1. Open the **Extraction** tab
-2. Tick the desired modules (or click **Select all**)
-3. Choose an **output folder** for the extracted data
-4. Click **Start extraction**
-5. Monitor progress in the real-time log window
-6. When complete, switch to the **Results** tab
-
-> **Tip:** Media extraction (photos and videos) can take longer on devices with large libraries. Always run the **File hashes** module last — it computes checksums for all previously extracted files.
+- **Sidebar (left)** – navigation between modules, language switch **EN / CS** (switches instantly,
+  no restart), **Wi-Fi connection** and the ADB status indicator at the bottom.
+- **Top bar** – title of the current module, the list of connected Android devices and **Refresh**.
+- **Working area** – the current module. Action panels share the same layout: a toolbar at the top
+  (source → status → main action), **Progress** log on the left and **Modules** on the right.
 
 ---
 
-## 8. Tab: Results
+## 6. Device Overview
 
-Shows a summary after extraction is complete:
+Shows details of the selected Android device: manufacturer, model, Android version, SDK, battery, serial
+number, IMEI, build information, security patch, kernel, encryption, SELinux, root status, RAM, storage,
+screen and more. The values are read over ADB when the device is selected.
 
-- Result for each module (✔ Success / ✗ Error)
-- Number of extracted records
-- Option to view a detail view for each data file (table or key-value)
+---
 
-### 8.1 Report export
+## 7. Data Extraction (Android over ADB)
 
-| Format | Description | Use case |
+![Data extraction](docs/screenshots/02_extraction.png)
+
+1. Select the modules on the right (**All / None** for quick selection).
+2. Click **Start Extraction** and choose the parent output folder. A sub-folder named
+   `<model>_<date>_<time>` is created.
+3. Follow the progress in the log; **Stop** interrupts the extraction.
+4. When finished, the **Results**, **Timeline**, **Map** and **Search** modules receive the data automatically.
+
+| Module | Data |
+|---|---|
+| Device Information | Model, Android version, IMEI, serial number, battery |
+| Contacts | Names, phone numbers, contact types |
+| SMS / MMS | Incoming and outgoing messages |
+| Call History | Incoming, outgoing and missed calls |
+| Installed Apps | Third-party applications |
+| Photos & Videos | Media from DCIM, Pictures, Movies |
+| Documents | PDF, Office and text documents |
+| Wi-Fi Networks | Saved networks |
+| Accounts | Accounts configured on the device |
+| Browser History | Visited pages |
+| User Data (with structure) | Complete `/sdcard` with the folder structure preserved |
+| File Analysis (EXIF & metadata) | EXIF, camera, GPS coordinates of photos |
+| File Hashes (MD5, SHA-256) | Checksums of the extracted files |
+| Deleted Data (root) | Recovery of deleted records *(root required)* |
+| WhatsApp / Viber (root) | Messenger databases *(root required)* |
+| ADB App Backup, Root Backup `/data/data`, App Data (Content Providers), App Usage Statistics, Termux Agent | Extended acquisition methods |
+
+> **Tip:** Run *File Hashes* last – it hashes the files extracted by the previous modules.
+
+---
+
+## 8. Extraction Results, reports and evidence integrity
+
+![Extraction results](docs/screenshots/03_results.png)
+
+- **Modules** (right) – one card per module with the number of records. Click a card to view its data.
+- **Data view** (left) – table (or key/value list) with a quick filter field; click a column header to sort,
+  **double-click a row** to open the record detail. **Open JSON** opens the source file. Photo modules show
+  a thumbnail gallery.
+- **Open Output** opens the output folder.
+
+### 8.1 Reports
+
+| Button | Output |
+|---|---|
+| **HTML** | Interactive report for a web browser |
+| **PDF** | Professional report: cover page (case details, examiner, logos), clickable table of contents, PDF bookmarks, page header/footer; the text is searchable |
+| **Excel** | Spreadsheet export for further analysis |
+
+The PDF cover page uses the branding from **Settings** (section 20).
+
+### 8.2 Evidence manifest and integrity check
+
+- **Evidence manifest** – hashes every file in the output folder (MD5 + SHA-256) and stores the hashes
+  together with optional case details (case number, examiner, organisation, evidence ID, note) in
+  `evidence_manifest.json` / `.txt`, including an aggregate SHA-256.
+- **Verify integrity** – re-hashes the folder and reports unchanged, **modified**, **missing** and **added** files.
+
+> The `_case/` sub-folder (search index, analyst work products) is deliberately excluded from the manifest,
+> so working with the data never breaks the integrity check.
+
+---
+
+## 9. Search across data
+
+![Search](docs/screenshots/04_search.png)
+
+Searches **all sources of one extraction at once** – messages, calls, contacts, browser history, files,
+WhatsApp, iOS data, imported backups, … The data is indexed into `<output folder>/_case/index.sqlite`.
+
+**Opening data:** after an extraction, Android dump or S30+ analysis the folder is passed to Search
+automatically; otherwise use **Open folder…**. Indexing runs in the background (progress bar in the
+toolbar). It is incremental – only changed files are re-indexed. **Re-index** forces a full rebuild.
+
+**Search field:**
+
+| You type | Result |
+|---|---|
+| `meeting` | records containing a word starting with "meeting" (prefix search) |
+| `jan novak` | both words must be present (AND) |
+| `"see you at"` | exact phrase in quotes |
+| `zlutoucky` | accents and case are ignored – finds "Žluťoučký"; `strasse` finds "Straße" |
+| `+44 7700 900123`, `07700 900123` | a phone number in **any format** – see below |
+| `北京`, `พรุ่งนี้`, `서울` | languages without spaces between words (Chinese, Japanese, Korean, Thai, …) are supported |
+
+Narrow the results by **source** and by a **date range** (`YYYY-MM-DD`). Each result shows the source,
+time and a snippet with the match in `[brackets]`; **double-click** opens the full record. Results are
+loaded in pages of 300 (**Load more**).
+
+**Phone numbers – independent of country.** Numbers are normalised to the international form and match
+when one is the ending of the other (at least 7 digits). Therefore `07700 900123` = `+44 7700 900123`,
+`0171 1234567` = `+49 171 1234567` and `777 123 456` = `+420 777 123 456`, while numbers from different
+countries with the same national part (e.g. `+420…` vs `+421…`) are not merged.
+
+### 9.1 Overview of identifiers
+
+![Search – filter by number](docs/screenshots/05_search_number.png)
+
+The **Overview** panel lists identifiers found in the data, with the number of records each appears in:
+
+| Type | Notes |
+|---|---|
+| Phone numbers | different formats of the same number are merged |
+| E-mail addresses, Web addresses | |
+| IBAN (bank accounts) | all IBAN countries, check digits verified |
+| Crypto addresses | Bitcoin (legacy + bech32), Ethereum |
+| IMEI | Luhn checksum verified |
+| Payment cards | issuer prefix + Luhn checksum verified |
+| IP addresses | IPv4 |
+| Birth numbers (CZ/SK), Licence plates (CZ) | **regional** detectors – relevant for Czech/Slovak data |
+
+Clicking an item shows every record that contains it (**Clear filter** returns to the text search).
+Detection of crypto addresses and licence plates is based on patterns – treat them as hints and verify.
+
+---
+
+## 10. Backup Import (Android vendor backups)
+
+![Backup import](docs/screenshots/08_backup_import.png)
+
+Imports data from backups without a connected device.
+
+| Format | Typical file |
+|---|---|
+| Auto-detect | format is detected from the content |
+| Samsung SmartSwitch | `.zip` / folder |
+| Huawei HiSuite / Phone Clone | `.hbk` / folder |
+| MIUI / Xiaomi Backup | `.bak` / folder |
+| Google Takeout | `.zip` / folder |
+| Sony Xperia Backup | `.bk` (ZIP) |
+| OnePlus / OxygenOS, OPPO / realme (ColorOS), Vivo / iQOO (EasyShare), Motorola (Migrate), LG Backup | vendor backup folders / archives |
+| ADB Backup | `.ab` |
+
+1. **Select File** (archive) or **Select Folder** (unpacked backup).
+2. Keep *Auto-detect* or choose the format manually.
+3. Click **Start Import** and choose the output folder.
+
+Typical imported data: contacts, SMS, call logs, Wi-Fi networks, calendar, browser history, notes and
+installed apps (depending on what the backup contains).
+
+---
+
+## 11. iOS Extraction (live device)
+
+![iOS extraction](docs/screenshots/09_ios.png)
+
+Requires the optional package **pymobiledevice3** (the status is shown in the toolbar) and a trusted,
+unlocked iPhone/iPad connected via USB. Modules: **Device Info** (model, iOS version, UDID, IMEI, serial
+number, storage), **Installed Apps** and **Photos (DCIM)** via AFC – no jailbreak required.
+
+---
+
+## 12. iOS Backup (iTunes / Finder), incl. encrypted backups
+
+![iOS backup import](docs/screenshots/10_ios_backup.png)
+
+Parses a local iTunes/Finder backup. Backups in the default Apple location are found automatically
+(**Found backups**, ↻ to rescan); any other backup folder can be opened with **Select backup…**.
+
+**Encrypted backups** are supported: when the selected backup is encrypted, a password field appears.
+Enter the backup password – the backup is decrypted on the fly into a temporary folder that is deleted
+afterwards. A wrong password is reported and nothing is extracted. Encrypted backups contain more data
+(e.g. WhatsApp, keychain-protected items) than unencrypted ones.
+
+Modules: Contacts, Messages (iMessage / SMS), Message Attachments, Call History, Notes, Calendar,
+Safari History, Photos, Photos with GPS, Voicemail, Wi-Fi Networks, Installed Apps, App Usage,
+WhatsApp Messages, WhatsApp Contacts, Viber Messages.
+
+> Decryption has been verified with synthetic test backups; verify the results against a known backup
+> before relying on them in a case.
+
+---
+
+## 13. iOS Ramdisk (checkm8)
+
+![iOS ramdisk](docs/screenshots/11_ios_ramdisk.png)
+
+Acquires data from an iPhone booted into an **SSH ramdisk**. The device has to be put into pwned DFU and
+the ramdisk booted with **external tools** (checkm8 for A5–A11; usbliter8-based tools for A12/A13 –
+typically on macOS with additional hardware). ForenziQ only connects to the running ramdisk over SSH
+(default `root@localhost:2222`, password `alpine`, data mount `/mnt2`) – use **Test connection** first.
+
+Modules: Messages, Contacts, Call History, Safari History, Notes, Accounts, Photos (DCIM), WhatsApp and
+the Keychain (downloaded **encrypted**, not decrypted). Every pulled file is hashed (SHA-256).
+
+> Requires the optional package **paramiko**. A locked device (BFU) keeps the data partition encrypted.
+> This module has not yet been validated against a real device – mount points may differ.
+
+---
+
+## 14. Android dump analyzer
+
+![Android dump analyzer](docs/screenshots/12_android_dump.png)
+
+Analyses a physical image of Android storage **read-only** (nothing is mounted or modified):
+a full storage image (GPT), a single `userdata` partition image, or an Android **sparse** image.
+
+1. **Select image…**, then pick the **Partition** to analyse (for a full GPT image choose the userdata partition).
+2. Choose the **Output folder**, select modules and click **Analyze**.
+
+Modules: Device information, Contacts, SMS / MMS, Call history, WhatsApp, Browser history, Wi-Fi networks
+(incl. passwords), Bluetooth devices, Accounts, Installed apps, Internal storage (photos, files).
+Results open in Results / Timeline / Map / Search like a live extraction.
+
+> Supported file system: **ext4**. F2FS and encrypted (FBE/FDE) user data are detected and reported as
+> unsupported. Tested on synthetic images – verify on a known dump before use in a case.
+
+---
+
+## 15. Nokia S30+ dump analyzer
+
+![Nokia S30+](docs/screenshots/13_nokia_s30.png)
+
+Analyses a NOR flash dump of a Nokia S30+ feature phone with the **Spreadtrum SC6531E** chipset
+(the dump is only read). Modules: Contacts, SMS messages, Calls, Files (internal FAT12 disk) – including
+recovery of deleted records where possible.
+
+**Outputs:** contacts to Excel (name + numbers), a FAT12 disk image (for Autopsy / FTK), a PDF report
+(optionally with photo thumbnails). Optional case details are printed in the PDF report. The results are
+also shown on the Timeline and in Search.
+
+---
+
+## 16. Backup Comparison
+
+![Backup comparison](docs/screenshots/07_comparison.png)
+
+Compares two output folders of the same device (e.g. before and after an incident).
+
+1. **Backup A (older)** → Browse, **Backup B (newer)** → Browse.
+2. Click **Compare**.
+
+The summary shows the number of **new**, **removed** and **changed** records and the number of compared
+files. Each data type has a card; changes are shown field by field (*Before → After*).
+
+---
+
+## 17. Timeline
+
+![Timeline](docs/screenshots/06_timeline.png)
+
+Shows SMS, calls, browser history, photos, files and app events on a time axis, one lane per source.
+
+| Action | Effect |
+|---|---|
+| **Load Data** | choose an output folder (after an extraction it loads automatically) |
+| Drag with the **left mouse button** | pan along the time axis |
+| **Mouse wheel** | zoom in / out at the cursor |
+| **Right click**, **Full Range** | show the whole time range |
+| **Zoom + / Zoom –** | zoom buttons |
+| **Click a dot** | event detail (source, date, time, all fields) |
+| Source check boxes | show / hide sources |
+
+Nearby events are merged into a larger dot with a count – zoom in to separate them.
+
+---
+
+## 18. GPS Location Map
+
+Displays the locations of photos with GPS coordinates on an OpenStreetMap map, with a list of photos and
+a detail panel (file name, date taken, coordinates, altitude, camera, resolution, size).
+
+> ⚠ The map **downloads map tiles from the internet** (OpenStreetMap). Tile requests reveal the viewed
+> area to the tile server. Do not open the Map if the case requires a fully offline workstation.
+> The map shows up to 300 markers; the list up to 250 photos.
+
+---
+
+## 19. Screen Lock Bypass
+
+![Lock bypass](docs/screenshots/14_lock_bypass.png)
+
+> ⚠ Only for devices you are legally authorised to access.
+
+| Method | Requirements | Description |
 |---|---|---|
-| **HTML** | Interactive web page | Browser viewing, sharing |
-| **PDF** | Professional document | Print output, case files |
-| **Excel (.xlsx)** | Spreadsheet | Further data analysis |
+| **Method 1 – ADB Root** | Android 4–10, root | deletes lock files (`gesture.key`, `password.key`, `locksettings.db`) |
+| **Method 2 – TWRP Recovery** | Android 4–13, TWRP | mounts `/data` in TWRP and deletes lock files; FBE devices need a TWRP build with decryption |
+| **Unlock with keyboard** | broken touchscreen, no root | enters a **known** PIN, password or pattern over ADB – not a lock crack |
+| **FRP-1 – ADB Settings** | Android 5–6 | settings manipulation over ADB |
+| **FRP-2 – TWRP wipe FRP** | Android 5–13, TWRP | zeroes the FRP partition |
+| **FRP-3 – Fastboot erase** | unlocked bootloader | `fastboot erase frp` |
+| **FRP-4 – Root: delete account** | Android 5–10, root | removes the Google account from `accounts.db` |
 
-Reports are saved to the extraction output folder (`report.html`, `report.pdf`, `report.xlsx`).
-
-### 8.2 Record detail
-
-Double-clicking any row in a result table opens a detail window with the full record. For records containing GPS coordinates a Google Maps link is shown.
-
----
-
-## 9. Tab: Backup Import
-
-Allows importing data from backup files without a physically connected device.
-
-### 9.1 Supported formats
-
-| Format | Extension | Manufacturer |
-|---|---|---|
-| **Auto-detect** | – | Automatically identifies the format |
-| Samsung SmartSwitch | `.zip` / folder | Samsung |
-| Huawei HiSuite | `.hbk` | Huawei |
-| MIUI Backup | `.bak` | Xiaomi |
-| Google Takeout | `.zip` / folder | Google |
-| Sony Xperia Backup | `.bk` | Sony |
-| OnePlus / OxygenOS | `.tar.gz` / folder | OnePlus |
-| ADB Backup | `.ab` | Standard Android |
-
-### 9.2 Importable data types
-
-Contacts · SMS · Call logs · Media files · Wi-Fi networks · Calendar events
-
-### 9.3 Import procedure
-
-1. Click **Pick file** (for a single backup file) or **Pick folder** (for an extracted backup)
-2. The format is detected automatically and shown as a badge
-3. If auto-detection fails, select the format manually in the left panel
-4. Tick the desired import modules
-5. Choose an output folder
-6. Click **Run import**
+The compatibility table shows which method is reliable for which Android version. **Reboot commands**
+(Recovery, Bootloader, normal reboot) are in the left panel.
 
 ---
 
-## 10. Tab: Comparison
+## 20. Settings (report branding)
 
-Compares the output of two extractions to show what changed between them — useful for tracking changes over time.
+![Settings](docs/screenshots/15_settings.png)
 
-### 10.1 Comparable data types
+- **Default examiner** and **Default organization** – pre-filled into the case details of reports.
+- **Company / investigator logo** (PNG or JPG) – printed top-right on the PDF cover page.
+- Switches: show the company logo, the ForenziQ logo and the *Case details* block in the report.
 
-Contacts · SMS · Call logs · Apps · Wi-Fi networks · Accounts · Browser history · Device info
-
-### 10.2 Comparison results
-
-| Category | Description |
-|---|---|
-| 🟢 New records | Records added after the first extraction |
-| 🔴 Removed records | Records deleted since the first extraction |
-| 🟡 Changed records | Records with modified field values |
-| ⚪ Unchanged | Records identical in both extractions |
-
-### 10.3 Procedure
-
-1. Select the **Backup A** folder (older extraction)
-2. Select the **Backup B** folder (newer extraction)
-3. Click **Compare**
-4. Review the summary and expand each category for details
+Settings are stored in `%USERPROFILE%\.forenziq\settings.json`.
 
 ---
 
-## 11. Tab: Timeline
+## 21. Wireless connection (Wi-Fi ADB)
 
-Visualises all events chronologically — ideal for reconstructing device activity.
+1. Connect the device via USB first.
+2. Open **Wi-Fi connection** in the sidebar and click **Activate TCP/IP** (port 5555).
+3. Click **Detect IP** (or type the device IP address).
+4. Click **Connect via Wi-Fi** – the USB cable can now be disconnected.
 
-### 11.1 Event sources
-
-| Colour | Type |
-|---|---|
-| 🟢 Green | SMS messages |
-| 🔵 Blue | Phone calls |
-| 🟠 Orange | Browser history |
-| 🩷 Pink | Photos |
-| 🟣 Purple | Files |
-| 🩵 Cyan | Apps |
-
-### 11.2 Controls
-
-| Action | Description |
-|---|---|
-| **Drag with mouse** | Pan through time |
-| **Mouse wheel** | Zoom in / zoom out |
-| **Full range button** | Show all events at once |
-| **Click a dot** | Event detail (date, time, content) |
-| **Checkboxes** | Filter by event source |
-
-### 11.3 Loading data
-
-1. Click the folder load button
-2. Select the extraction output folder
-3. Data loads in the background without blocking the UI
-
-> **Tip:** Clusters (larger circles with a number) represent multiple events at the same point on the axis. Scroll the mouse wheel over a cluster to zoom in and see individual events.
+The computer and the device must be on the same network.
 
 ---
 
-## 12. Tab: Map
-
-Displays GPS coordinates from photos on an interactive map (OpenStreetMap).
-
-### 12.1 Prerequisites
-
-- Photos must contain GPS data in their EXIF metadata (not all devices or camera settings record this)
-- An internet connection is required to load map tiles
-
-### 12.2 Map controls
-
-| Action | Description |
-|---|---|
-| **Drag with mouse** | Pan the map |
-| **Mouse wheel** | Zoom in / zoom out |
-| **Click a marker** | Highlight the photo in the list |
-| **Click in the list** | Centre the map on the selected photo |
-
-### 12.3 Photo detail
-
-Clicking a marker or a list item shows a detail panel with:
-- Filename
-- Date and time taken
-- GPS coordinates (latitude / longitude)
-- Altitude
-- Camera make and model
-- Resolution and file size
-
-> **Limit:** The map shows a maximum of 300 markers; the list shows a maximum of 250 photos. If more photos with GPS data exist, a count summary is displayed.
-
----
-
-## 13. Tab: Lock Bypass
-
-> ⚠ **Use this tool only on devices you are legally authorised to analyse.**
-
-### 13.1 Device diagnostics
-
-Always run the **Diagnostics** scan (button in the left panel) before selecting a method. It reports:
-
-- Android version
-- Encryption type (/data partition)
-- Root access availability
-- TWRP recovery presence
-
-### 13.2 Screen-lock bypass methods
-
-#### Method 1: ADB root – delete
-- **Requirements:** Root access (Magisk, SuperSU, or adbd root)
-- **Android:** 4 – 10
-- **Description:** Deletes lock files (`gesture.key`, `password.key`, `locksettings.db`) via root ADB shell
-
-#### Method 2: TWRP – delete
-- **Requirements:** Device must be in TWRP recovery
-- **Android:** 4 – 13
-- **Description:** Mounts the /data partition in recovery and deletes lock files. Suitable for encrypted devices (FDE/FBE)
-
-### 13.3 FRP (Factory Reset Protection) bypass methods
-
-> FRP is Google account protection activated after a factory reset. It requires signing in with the original Google account.
-
-| Method | Requirements | Android |
-|---|---|---|
-| **FRP-1: Settings (ADB)** | ADB connection | 5 – 6 (unpatched) |
-| **FRP-2: TWRP wipe** | Device in TWRP | 5+ |
-| **FRP-3: Fastboot erase** | Unlocked bootloader | 5+ |
-| **FRP-4: Root delete** | Root access | 5+ |
-
-### 13.4 Compatibility table
-
-| Android version | ADB root | TWRP |
-|---|---|---|
-| Android 4 – 6 | ✔ Full support | ✔ Full support |
-| Android 7 – 8 | ✔ Full support | ⚠ FDE challenges |
-| Android 9 – 10 | ✔ Full support | ⚠ FBE challenges |
-| Android 11 – 13 | ⚠ Magisk only | ⚠ FBE challenges |
-| Android 14+ | ⚠ Magisk only | ⚠ FBE challenges |
-
-### 13.5 Reboot commands
-
-The left panel provides quick reboot shortcuts:
-- **Reboot to recovery** — for TWRP
-- **Reboot to bootloader** — for fastboot
-- **Reboot to system** — normal restart
-
----
-
-## 14. Wireless Connection (Wi-Fi ADB)
-
-The application supports connecting a device over Wi-Fi without a USB cable.
-
-### Procedure
-
-1. First connect the device with a USB cable and confirm USB Debugging is active
-2. Click the **Wi-Fi** button in the top application bar
-3. Enter the device IP address and port (default: `5555`)
-4. Confirm the connection
-5. The cable can be disconnected — communication continues over the network
-
-> **Requirement:** The computer and the device must be on the same Wi-Fi network.
-
----
-
-## 15. Recommended Workflow
+## 22. Recommended workflow
 
 ```
-1. Preparation
-   └─ Enable USB Debugging on the device
-   └─ Connect the USB cable
-
-2. Device identification
-   └─ Review the Overview tab
-   └─ Record IMEI, serial number, OS version
-
-3. Data extraction
-   └─ Select modules
-   └─ Choose an output folder
-   └─ Start extraction
-   └─ Wait for completion
-
-4. Report export
-   └─ Results tab → HTML / PDF / Excel
-
-5. Analysis (optional)
-   ├─ Timeline → chronological activity overview
-   ├─ Map → photo location mapping
-   └─ Comparison → detect changes between two extractions
-
-6. Backup import (optional)
-   └─ Backup tab
-   └─ Select the backup file / folder
-   └─ Import the required data
-
-7. Lock bypass (authorised cases only)
-   └─ Run Diagnostics
-   └─ Select method based on results
-   └─ Run and monitor the log
+1. Preparation        – authorisation, USB debugging / backup / dump ready
+2. Identification     – Device Overview: note model, IMEI, serial number
+3. Acquisition        – Data Extraction, Backup Import, iOS, Android dump or S30+
+4. Integrity          – Results → Evidence manifest (right after acquisition)
+5. Analysis           – Search, Timeline, Map, Comparison
+6. Reporting          – Results → HTML / PDF / Excel
+7. Final check        – Results → Verify integrity
 ```
 
 ---
 
-## 16. Common Issues and Solutions
+## 23. Data handling and privacy
 
-### Device not detected
-
-| Cause | Solution |
-|---|---|
-| USB Debugging not enabled | Enable it in Developer Options |
-| Cable does not support data | Use a data-capable cable |
-| Confirmation prompt on phone not accepted | Unlock the screen and tap "Allow debugging" |
-| Missing USB driver | Install the manufacturer's driver |
-| Stale ADB server | Run `adb kill-server` then `adb start-server` |
-
-### Extraction fails
-
-| Cause | Solution |
-|---|---|
-| Screen is locked | Unlock the device before extracting |
-| Insufficient permissions | Confirm all ADB permission prompts on the device |
-| Device disconnected mid-extraction | Check the cable and retry |
-| Insufficient disk space | Check free space on the computer |
-
-### "Deleted data" module finds nothing
-
-Deleted data recovery requires **root access**. Without root the module cannot retrieve any files.
-
-### Map does not display
-
-Check your internet connection. The `tkintermapview` library fetches tiles from OpenStreetMap.
-
-### Timeline tab is empty
-
-Load the correct extraction output folder — it must contain the module JSON files (`sms.json`, `calls.json`, etc.).
-
-### Some text remains in Czech after switching language
-
-Restart the application if the language switch does not take effect immediately. In the current version the UI language switches fully when the toggle is activated.
+- All acquisition and analysis runs **locally**. ForenziQ has no telemetry, no update check and no cloud
+  features.
+- The only module that contacts the internet is the **Map** (OpenStreetMap tiles).
+- Extracted data, reports, the search index (`_case/`) and the evidence manifest are written only to the
+  output folder you choose. Temporary files used for encrypted iOS backups are deleted after the import.
 
 ---
 
-*ForenziQ v1.0 · Practical User Guide (EN)*
+## 24. Troubleshooting
+
+| Problem | Solution |
+|---|---|
+| Device not detected | enable USB debugging, confirm the prompt on the phone, use a data cable, install the USB driver, run `adb kill-server` and **Refresh** |
+| Extraction fails or returns little data | unlock the device, confirm permission prompts, check free disk space |
+| *Deleted Data* / WhatsApp modules return nothing | they require root access |
+| iOS device not found | install pymobiledevice3, unlock the device and tap **Trust** |
+| iOS backup – wrong password | the backup password is the one set in iTunes/Finder, not the device passcode |
+| Android dump – "unsupported" | the data partition is F2FS or encrypted; only ext4 is supported |
+| Map is empty | photos have no GPS data, or there is no internet connection |
+| Timeline / Search is empty | open the output folder of an extraction (it must contain the module `.json` files) |
+| Search finds nothing for a number | type at least 7 digits; formats do not matter |
+
+---
+
+*ForenziQ v1.0 · User Guide (EN)*

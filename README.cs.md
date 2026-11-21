@@ -1,79 +1,104 @@
 # ForenziQ Toolkit
 
-Forenzní nástroj pro analýzu a extrakci dat z Android zařízení přes ADB rozhraní.
+**Desktopová sada nástrojů pro forenzní zajištění a analýzu dat z mobilních zařízení – Android, iOS a Nokia S30+.**
+
+🇬🇧 [English version](README.md) · 📖 [Uživatelská příručka (CS)](MANUAL_CS.md) · 📖 [User Guide (EN)](MANUAL_EN.md)
+
+![Hledání napříč daty](docs/screenshots/04_search_cs.png)
+
+> Snímky obrazovky ukazují **fiktivní ukázkový případ** – žádná reálná data.
 
 ---
 
-## Co software dělá
+## Funkce
 
-ForenziQ je desktopová aplikace určená pro forenzní analýzu Android zařízení. Umožňuje:
+**Akvizice**
+- **Android přes ADB** (USB nebo Wi-Fi) – kontakty, SMS/MMS, hovory, aplikace, fotky a videa, dokumenty,
+  Wi-Fi sítě, účty, historie prohlížeče, celý strom `/sdcard`, EXIF/GPS, hashe souborů; moduly s rootem
+  pro smazaná data, WhatsApp a Viber
+- **Fyzické dumpy Androidu** – raw / GPT / sparse obrazy, vlastní čtení ext4 pouze pro čtení (bez připojování)
+- **Zálohy výrobců Androidu** – Samsung SmartSwitch, Huawei HiSuite, Xiaomi MIUI, Google Takeout, Sony,
+  OnePlus, OPPO/realme, Vivo, Motorola, LG, ADB `.ab` – s automatickou detekcí formátu
+- **iOS** – živá extrakce (pymobiledevice3), zálohy iTunes/Finder **včetně šifrovaných** (WhatsApp,
+  iMessage, …), akvizice přes SSH ramdisk (checkm8)
+- **Nokia S30+** – flash dumpy tlačítkových telefonů se Spreadtrum SC6531E (kontakty, SMS, hovory, soubory FAT12)
 
-- **Přehled zařízení** – zobrazení detailních informací o připojeném zařízení (model, výrobce, Android verze, IMEI, sériové číslo, CPU, RAM, úložiště, šifrování, SELinux, root status a další)
-- **Extrakce dat** – modulární extrakce vybraných dat ze zařízení:
-  - Kontakty, SMS/MMS zprávy, historie hovorů
-  - Nainstalované aplikace
-  - Fotografie a videa
-  - Dokumenty (PDF, Office, TXT)
-  - Uložené Wi-Fi sítě a účty
-  - Historie prohlížeče
-  - Celá struktura uživatelských dat (/sdcard)
-  - EXIF metadata a GPS souřadnice fotografií
-  - MD5 a SHA-256 hashe souborů
-  - Obnova smazaných dat (vyžaduje root)
-- **Mapa GPS lokací** – vizualizace míst pořízení fotografií na interaktivní mapě (OpenStreetMap) včetně data pořízení a detailů fotoaparátu
-- **Časová osa** – chronologická vizualizace extrahovaných událostí (SMS, hovory, fotografie, soubory)
-- **Porovnání záloh** – porovnání dvou extrakčních složek pro detekci změn
-- **Výsledky a reporty** – export do HTML, PDF a Excel formátů
-- **Obcházení zámku obrazovky** – forenzní nástroje pro obcházení PIN/gesta (ADB root metoda, TWRP recovery metoda) s diagnostikou zařízení a reboot příkazy
-- **Wi-Fi ADB připojení** – bezdrátové připojení k zařízení přes TCP/IP
+**Analýza**
+- **Hledání napříč všemi zdroji** – fulltext nezávislý na diakritice a jazyku (včetně čínštiny,
+  japonštiny, korejštiny, thajštiny), telefonní čísla v libovolném národním i mezinárodním tvaru,
+  automatické rozpoznání e-mailů, URL, IBAN, kryptoadres, IMEI, platebních karet a IP adres
+- **Časová osa** zpráv, hovorů, historie prohlížeče a fotek
+- **Mapa GPS** míst pořízení fotek
+- **Porovnání záloh** – nové / odstraněné / změněné záznamy mezi dvěma extrakcemi
+
+**Reporty a integrita**
+- HTML, **PDF** (titulní strana s údaji o případu a logy, klikací obsah, záložky) a Excel
+- **Manifest důkazů** (MD5 + SHA-256 každého souboru) a ověření integrity
+- Rozhraní v **angličtině** a **češtině**
+
+| | |
+|---|---|
+| ![Přehled zařízení](docs/screenshots/01_dashboard_cs.png) | ![Výsledky extrakce](docs/screenshots/03_results_cs.png) |
+| ![Časová osa](docs/screenshots/06_timeline_cs.png) | ![Porovnání záloh](docs/screenshots/07_comparison_cs.png) |
+| ![iOS záloha](docs/screenshots/10_ios_backup_cs.png) | ![Android dump analyzer](docs/screenshots/12_android_dump_cs.png) |
+
+---
+
+## Rychlý start
+
+**Požadavky:** Windows 10/11 (64bit), Python 3.11+ (při spuštění ze zdrojových kódů).
+
+```bash
+pip install -r requirements.txt
+python main.py
+```
+
+nebo spusťte `spustit.bat`. ADB (Android platform-tools) je přiložené ve složce `adb/`.
+
+**Samostatný spustitelný soubor** – sestavení jediného `ForenziQ.exe` (na cílovém PC není potřeba Python):
+
+```bash
+pip install pyinstaller
+python -m PyInstaller ForenziQ.spec --noconfirm --clean
+```
+
+Podrobný postup pro každý modul najdete v [uživatelské příručce](MANUAL_CS.md).
 
 ---
 
 ## Na čem je postaven
 
-| Komponenta | Verze | Účel |
-|---|---|---|
-| Python | 3.11+ | Hlavní jazyk aplikace |
-| CustomTkinter | 5.2.2 | Moderní GUI framework (tmavý motiv) |
-| Pillow | 11.2.1 | Zpracování obrázků, EXIF metadata |
-| ReportLab | 4.2.2 | Generování PDF reportů |
-| openpyxl | 3.1.5 | Generování Excel reportů |
-| deepdiff | 8.1.1 | Porovnávání datových sad |
-| tkintermapview | 1.29 | Interaktivní mapa (OpenStreetMap) |
-| ADB | – | Android Debug Bridge (komunikace se zařízením) |
+| Komponenta | Účel |
+|---|---|
+| Python 3.11+ | Aplikace |
+| CustomTkinter | Uživatelské rozhraní (tmavý motiv) |
+| Pillow | Obrázky, EXIF metadata |
+| ReportLab | PDF reporty |
+| openpyxl | Export do Excelu |
+| deepdiff | Porovnání záloh |
+| tkintermapview | Interaktivní mapa (OpenStreetMap) |
+| cryptography | Dešifrování šifrovaných iOS záloh |
+| SQLite FTS5 (součást Pythonu) | Index hledání |
+| pymobiledevice3 *(volitelný)* | Živá extrakce iOS |
+| paramiko *(volitelný)* | iOS SSH ramdisk |
+| ADB | Komunikace se zařízeními Android |
 
 ---
 
-## Požadavky
+## Soukromí
 
-- Windows 10/11 (64-bit)
-- Python 3.11 nebo novější
-- ADB nainstalované v systému nebo přiložené v složce `adb/`
-- Na zařízení povolené **USB ladění** (USB Debugging)
-
-### Instalace závislostí
-
-```bash
-pip install -r requirements.txt
-```
-
-### Spuštění
-
-```bash
-python main.py
-```
-
-nebo pomocí přiloženého skriptu:
-
-```
-spustit.bat
-```
+Veškerá akvizice i analýza probíhá **lokálně** – bez telemetrie, bez kontroly aktualizací, bez cloudu.
+Jediný přístup do sítě má **Mapa**, která stahuje dlaždice OpenStreetMap. Výstupy, reporty a index
+hledání se zapisují jen do výstupní složky, kterou zvolíte.
 
 ---
 
-## Podporovaná zařízení
+## Stav a omezení
 
-Jakékoli Android zařízení s povoleným USB laděním. Některé funkce (obnova smazaných dat, obcházení zámku) vyžadují root přístup nebo TWRP recovery.
+- Analýza Android dumpů, dešifrování šifrovaných iOS záloh a modul iOS ramdisk byly testovány na
+  syntetických datech – před použitím v případu je ověřte na známých referenčních datech.
+- Android dumpy: pouze ext4 (F2FS a šifrovaná data FBE/FDE se ohlásí jako nepodporovaná).
+- Nokia S30+: pouze Spreadtrum SC6531E (MOCOR).
 
 ---
 
@@ -81,19 +106,20 @@ Jakékoli Android zařízení s povoleným USB laděním. Některé funkce (obno
 
 > **DŮLEŽITÉ – PŘEČTĚTE PŘED POUŽITÍM**
 
-Tento software je určen **výhradně pro legální forenzní analýzu** Android zařízení, ke které máte oprávnění – například:
-- analýzu vlastního zařízení,
-- analýzu zařízení v rámci autorizovaného bezpečnostního testování,
-- vzdělávací a výzkumné účely v kontrolovaném prostředí.
+Software je určen **výhradně pro zákonnou forenzní analýzu** zařízení, ke kterým máte výslovné oprávnění –
+například vlastní zařízení, analýza se souhlasem vlastníka nebo na základě soudního příkazu, autorizované
+bezpečnostní testování, výuka a výzkum v kontrolovaném prostředí.
 
-**Použití tohoto softwaru bez výslovného souhlasu vlastníka zařízení je nezákonné** a může být v rozporu s trestním zákoníkem vaší země.
+**Použití bez takového oprávnění je protiprávní** a může porušovat trestní právo vaší jurisdikce. Autor
+**nenese žádnou odpovědnost** za přímé, nepřímé, nahodilé ani následné škody vzniklé použitím nástroje
+ani za jakékoli protiprávní jednání uživatele. Veškerá odpovědnost za způsob použití leží výhradně na
+uživateli.
 
-Autor tohoto softwaru **nenese absolutně žádnou odpovědnost** za jakékoli přímé, nepřímé, náhodné nebo následné škody vzniklé používáním tohoto nástroje, ani za žádné protiprávní jednání uživatele. Veškerá odpovědnost za způsob použití leží výhradně na uživateli.
-
-Stažením, instalací nebo spuštěním tohoto softwaru potvrzujete, že jste si přečetli toto upozornění a souhlasíte s těmito podmínkami.
+Stažením, instalací nebo spuštěním softwaru potvrzujete, že jste se s tímto upozorněním seznámili
+a souhlasíte s ním.
 
 ---
 
 ## Licence
 
-Software je poskytován „tak jak je" (AS IS), bez jakékoli záruky funkčnosti nebo vhodnosti pro konkrétní účel.
+Software je poskytován „TAK, JAK JE“, bez jakékoli záruky vhodnosti pro konkrétní účel či prodejnosti.
