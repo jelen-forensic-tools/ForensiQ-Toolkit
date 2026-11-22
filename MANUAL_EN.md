@@ -363,7 +363,8 @@ installed apps (depending on what the backup contains).
 | ADB backup `.ab` | ✅ compressed / uncompressed, **encrypted (AES-256) with the backup password** |
 | Xiaomi MIUI `.bak` / AllBackup folder | ✅ including encrypted backups (password) |
 | Google Takeout | ✅ contacts (vCard), calendar (iCal), Chrome history and bookmarks, Keep notes. Takeout does not contain SMS or call logs. |
-| Samsung Smart Switch, Huawei HiSuite / Phone Clone | ⚠️ the format is recognised, but current versions **encrypt** the data – decryption is not supported yet; only unencrypted files (e.g. photos) are imported |
+| Samsung Smart Switch (PC / external storage backup, folder or `.zip`) | ✅ **decrypted** (backups without a password): contacts, call log, SMS/MMS/RCS (Google Messages), Wi-Fi (incl. passwords), installed apps, Samsung Internet history and bookmarks, photos and videos. The readable decrypted copy is kept in `smartswitch_decrypted/` of the output folder; device details and statistics are in `import_summary.json`. Backups protected with a **password / PIN are not supported yet**, Samsung Notes are only decrypted, not parsed. Tested on synthetic backups built by the documented format. |
+| Huawei HiSuite / Phone Clone | ⚠️ the format is recognised, but current versions **encrypt** the data – decryption is not supported yet; only unencrypted files (e.g. photos) are imported |
 | OPPO/realme, Vivo, Motorola, LG, Sony, OnePlus | ⚠️ the format is recognised; data is found only if the backup contains standard unencrypted Android files (contacts2.db, mmssms.db, vCard, …) |
 
 Archives from backups are extracted safely – entries that try to write outside the extraction folder

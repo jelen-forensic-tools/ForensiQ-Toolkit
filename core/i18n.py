@@ -649,6 +649,9 @@ TRANSLATIONS = {
         "bkp.done_msg":          "Import dokončen – {ok}/{total} modulů",
         "bkp.log_stopped":       "Import zastaven uživatelem.",
         "bkp.stopped_msg":       "Import zastaven",
+        "bkp.log_ss_decrypt":    "🔓 Dešifruji Smart Switch zálohu: {p}",
+        "bkp.log_ss_unsupported": "Zálohu nelze dešifrovat ({e}) – zálohy chráněné heslem/PINem zatím nejsou podporované.",
+        "bkp.log_ss_nothing":    "Žádný soubor se nepodařilo dešifrovat – záloha je nejspíš chráněná heslem/PINem nebo jde o nepodporovanou verzi Smart Switch.",
         # Backup format names
         "bkp.fmt_auto":    "Automatická detekce",
         "bkp.fmt_samsung": "Samsung SmartSwitch",
@@ -1780,6 +1783,9 @@ TRANSLATIONS = {
         "bkp.done_msg":          "Import done – {ok}/{total} modules",
         "bkp.log_stopped":       "Import stopped by user.",
         "bkp.stopped_msg":       "Import stopped",
+        "bkp.log_ss_decrypt":    "🔓 Decrypting Smart Switch backup: {p}",
+        "bkp.log_ss_unsupported": "Backup cannot be decrypted ({e}) – password/PIN protected backups are not supported yet.",
+        "bkp.log_ss_nothing":    "No file could be decrypted – the backup is probably password/PIN protected or from an unsupported Smart Switch version.",
         # Backup format names
         "bkp.fmt_auto":    "Auto-detect",
         "bkp.fmt_samsung": "Samsung SmartSwitch",

@@ -115,9 +115,9 @@ index are written only to the output folder you choose.
 - Android dumps: ext4 and F2FS (FBE/FDE-encrypted user data is reported as unsupported; F2FS-compressed
   files are skipped). The F2FS reader was tested on synthetic images only.
 - Nokia S30+: Spreadtrum SC6531E (MOCOR) only.
-- Backup import: ADB `.ab` and Xiaomi MIUI backups (incl. encrypted) and Google Takeout are parsed;
-  Samsung Smart Switch and Huawei HiSuite backups are recognised but their encrypted data cannot be
-  decrypted yet.
+- Backup import: ADB `.ab` and Xiaomi MIUI backups (incl. encrypted), Google Takeout and Samsung
+  Smart Switch backups without a password are parsed; password/PIN protected Smart Switch backups and
+  Huawei HiSuite backups cannot be decrypted yet.
 
 ---
 

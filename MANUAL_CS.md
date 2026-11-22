@@ -364,7 +364,8 @@ poznámky a nainstalované aplikace (podle toho, co záloha obsahuje).
 | ADB záloha `.ab` | ✅ s kompresí i bez, **šifrovaná (AES-256) s heslem zálohy** |
 | Xiaomi MIUI `.bak` / složka AllBackup | ✅ včetně šifrovaných záloh (heslo) |
 | Google Takeout | ✅ kontakty (vCard), kalendář (iCal), historie a záložky Chrome, poznámky Keep. SMS ani hovory Takeout neobsahuje. |
-| Samsung Smart Switch, Huawei HiSuite / Phone Clone | ⚠️ formát se rozpozná, ale současné verze data **šifrují** – dešifrování zatím není podporované; importují se jen nešifrované soubory (např. fotky) |
+| Samsung Smart Switch (záloha na PC / externí úložiště, složka nebo `.zip`) | ✅ **dešifruje se** (zálohy bez hesla): kontakty, hovory, SMS/MMS/RCS (Google Messages), Wi-Fi (včetně hesel), nainstalované aplikace, historie a záložky Samsung Internetu, fotky a videa. Čitelná dešifrovaná kopie zůstane ve výstupní složce v `smartswitch_decrypted/`, údaje o zařízení a statistika v `import_summary.json`. Zálohy chráněné **heslem / PINem zatím podporované nejsou**, Samsung Notes se jen dešifrují, neparsují. Testováno na syntetických zálohách sestavených podle zdokumentovaného formátu. |
+| Huawei HiSuite / Phone Clone | ⚠️ formát se rozpozná, ale současné verze data **šifrují** – dešifrování zatím není podporované; importují se jen nešifrované soubory (např. fotky) |
 | OPPO/realme, Vivo, Motorola, LG, Sony, OnePlus | ⚠️ formát se rozpozná; data se najdou, jen pokud záloha obsahuje standardní nešifrované soubory Androidu (contacts2.db, mmssms.db, vCard, …) |
 
 Archivy ze záloh se rozbalují bezpečně – položky, které se snaží zapsat mimo cílovou složku (`../`,

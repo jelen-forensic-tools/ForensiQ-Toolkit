@@ -115,9 +115,9 @@ hledání se zapisují jen do výstupní složky, kterou zvolíte.
 - Android dumpy: ext4 a F2FS (šifrovaná data FBE/FDE se ohlásí jako nepodporovaná; komprimované soubory
   F2FS se přeskočí). Čtečka F2FS byla testována jen na syntetických obrazech.
 - Nokia S30+: pouze Spreadtrum SC6531E (MOCOR).
-- Import záloh: ADB `.ab` a zálohy Xiaomi MIUI (včetně šifrovaných) a Google Takeout se načtou;
-  zálohy Samsung Smart Switch a Huawei HiSuite se rozpoznají, ale jejich šifrovaná data zatím nejde
-  dešifrovat.
+- Import záloh: ADB `.ab` a zálohy Xiaomi MIUI (včetně šifrovaných), Google Takeout a zálohy Samsung
+  Smart Switch bez hesla se načtou; zálohy Smart Switch chráněné heslem/PINem a zálohy Huawei HiSuite
+  zatím dešifrovat nejde.
 
 ---
 

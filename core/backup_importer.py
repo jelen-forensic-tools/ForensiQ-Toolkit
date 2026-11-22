@@ -2,7 +2,8 @@
 core/backup_importer.py – Import and extraction of data from mobile backups.
 
 Supported formats:
-  • Samsung SmartSwitch (.zip / folder; CONTACT/CALLLOG/MESSAGE/MEMO, sbrowser)
+  • Samsung Smart Switch (folder / .zip) – decrypted (core/smartswitch.py): contacts,
+    call log, Google Messages SMS/MMS/RCS, Wi-Fi, apps, Samsung Internet, media
   • Huawei HiSuite / Phone Clone (.hbk = ZIP / folder)
   • MIUI / Xiaomi Backup (.bak proprietary wrapper, AllBackup folder, ZIP)
   • Google Takeout (.zip / folder)
@@ -135,12 +136,44 @@ def _chrome_ts(ts) -> str:
         return str(ts)
 
 
+def _vcf_lines(text: str) -> list[str]:
+    """Unfold vCard lines: RFC folding (leading space) and quoted-printable soft breaks."""
+    out: list[str] = []
+    for raw in text.splitlines():
+        if out and raw[:1] in (" ", "\t") and not raw.strip().upper().startswith(("BEGIN:", "END:")):
+            out[-1] += raw[1:]
+        elif out and out[-1].endswith("=") and "QUOTED-PRINTABLE" in out[-1].upper():
+            out[-1] = out[-1][:-1] + raw.strip()
+        else:
+            out.append(raw)
+    return out
+
+
+def _vcf_value(key_part: str, val: str) -> str:
+    """Decode a vCard value (ENCODING=QUOTED-PRINTABLE / B, CHARSET=…)."""
+    params = key_part.upper()
+    charset = "utf-8"
+    m = re.search(r"CHARSET=([\w-]+)", params)
+    if m:
+        charset = m.group(1).lower()
+    try:
+        if "QUOTED-PRINTABLE" in params:
+            import quopri
+            return quopri.decodestring(val.encode("ascii", "replace")).decode(charset, "replace")
+        if "ENCODING=B" in params or "ENCODING=BASE64" in params:
+            import base64
+            return base64.b64decode(val).decode(charset, "replace")
+    except (LookupError, ValueError):
+        pass
+    return val
+
+
 def _parse_vcf(text: str) -> list[dict]:
     """Minimal vCard 2.1 / 3.0 file parser."""
     contacts: list[dict] = []
     cur: dict | None = None
 
-    for raw_line in text.splitlines():
+    for raw_line in _vcf_lines(text):
         line = raw_line.strip()
 
         if line.upper() == "BEGIN:VCARD":
@@ -155,7 +188,8 @@ def _parse_vcf(text: str) -> list[dict]:
             continue
         else:
             key_part, _, val = line.partition(":")
-            key_upper = key_part.upper().split(";")[0]
+            val = _vcf_value(key_part, val)
+            key_upper = key_part.upper().split(";")[0].split(".")[-1]
             if key_upper == "FN":
                 cur["name"] = val.strip()
             elif key_upper == "N" and not cur["name"]:
@@ -364,6 +398,8 @@ class BackupImporter:
         self._tmp: str | None = None
         self._extracted_root: Path | None = None
         self._extra_roots: list[Path] = []   # e.g. unwrapped MIUI .bak contents
+        self._media_roots: list[Path] = []   # original Smart Switch roots (plain media)
+        self.smartswitch_info: dict = {}
         self.detected_format: str = ""
         self._stop_event = threading.Event()
 
@@ -424,6 +460,8 @@ class BackupImporter:
         except Exception:
             return "samsung"
 
+        if any(n.endswith("backuphistoryinfo.xml") for n in names):
+            return "samsung"
         if any("takeout/" in n for n in names):
             return "takeout"
         if any("miui/apps" in n or "descript.xml" in n for n in names):
@@ -479,6 +517,9 @@ class BackupImporter:
 
         if "takeout" in children:
             return "takeout"
+        from core import smartswitch as ss
+        if ss.find_roots(path, max_depth=3):
+            return "samsung"
         if any(n.endswith(".hbk") for n in children):
             return "huawei"
         # MIUI local backup: AllBackup folder has descript.xml + per-app .bak files
@@ -506,6 +547,48 @@ class BackupImporter:
     # ── Backup extraction ─────────────────────────────────────────────────────
 
     def _ensure_extracted(self, log: Callable) -> bool:
+        ok = self._ensure_extracted_raw(log)
+        if ok and self.detected_format == "samsung":
+            self._decrypt_smartswitch(log)
+        return ok
+
+    def _decrypt_smartswitch(self, log: Callable) -> None:
+        """Decrypt every Smart Switch backup root into <output>/smartswitch_decrypted/ and
+        search that readable mirror instead of the encrypted original."""
+        from core import smartswitch as ss
+        roots = ss.find_roots(self._extracted_root) if self._extracted_root else []
+        if not roots:
+            return
+        base = self.output_dir / "smartswitch_decrypted"
+        decrypted: list[Path] = []
+        for i, root in enumerate(roots):
+            dest = base / (root.name if len(roots) == 1 else f"{i + 1}_{root.name}")
+            log(t("bkp.log_ss_decrypt").format(p=root))
+            try:
+                st = ss.decrypt_backup(root, dest, log, stopped=self._stopped)
+            except ss.SmartSwitchError as e:
+                log("  ✗ " + t("bkp.log_ss_unsupported").format(e=e))
+                continue
+            except Exception as e:
+                log(f"  ✗ {e}")
+                continue
+            info = ss.backup_info(root)
+            info["decrypted_to"] = str(dest)
+            info["stats"] = {k: v for k, v in st.items() if not isinstance(v, list)}
+            info["undecoded_files"] = st.get("undecoded_files", [])[:200]
+            self.smartswitch_info[str(root)] = info
+            if st.get("undecoded") and not st.get("decrypted"):
+                log("  ⚠ " + t("bkp.log_ss_nothing"))
+            decrypted.append(dest)
+            self._media_roots.append(root)
+        if decrypted:
+            if len(decrypted) == 1:
+                self._extracted_root = decrypted[0]
+            else:
+                self._extracted_root = base
+            # the original (encrypted) tree is no longer searched – only its plain media
+
+    def _ensure_extracted_raw(self, log: Callable) -> bool:
         if self._extracted_root:
             return True
 
@@ -677,10 +760,14 @@ class BackupImporter:
         if not roots:
             return []
         result: list[Path] = []
+        seen: set = set()
         for root in roots:
             for pattern in patterns:
                 for p in root.rglob(pattern):
-                    if p.is_file():
+                    # patterns differing only in case match the same file on Windows
+                    k = os.path.normcase(str(p))
+                    if k not in seen and p.is_file():
+                        seen.add(k)
                         result.append(p)
         return result
 
@@ -1208,7 +1295,8 @@ class BackupImporter:
         count = 0
         if not self._extracted_root:
             return 0
-        for f in self._extracted_root.rglob("*"):
+        roots = [self._extracted_root] + self._media_roots
+        for f in (x for r in roots for x in r.rglob("*")):
             if f.suffix.lower() in exts and f.is_file():
                 try:
                     dest = media_dir / f.name
@@ -1266,8 +1354,28 @@ class BackupImporter:
         self._write_json("contacts.json", dedup)
         return ImportResult("bkp_contacts", True, len(dedup))
 
+    def _sqlite_files(self) -> list[Path]:
+        """All SQLite databases in the searched roots (by file header)."""
+        out = []
+        for f in self._find_files("*"):
+            try:
+                if f.stat().st_size >= 512:
+                    with open(f, "rb") as fh:
+                        if fh.read(16) == b"SQLite format 3\x00":
+                            out.append(f)
+            except OSError:
+                pass
+        return out
+
     def _run_sms(self, fmt: str, log: Callable) -> ImportResult:
         sms: list[dict] = []
+
+        if fmt == "samsung":
+            from core import smartswitch as ss
+            for db in self._sqlite_files():
+                if ss.is_bugle_backup(db):
+                    log(f"  🗄 {db.name} (Google Messages)")
+                    sms.extend(ss.sms_from_bugle(db))
 
         if fmt == "huawei":
             for f in self._find_files("sms.xml", "SMS.xml", "All_SMS.xml"):
@@ -1296,6 +1404,14 @@ class BackupImporter:
     def _run_calls(self, fmt: str, log: Callable) -> ImportResult:
         calls: list[dict] = []
 
+        if fmt == "samsung":
+            from core import smartswitch as ss
+            for f in self._find_files("*.exml"):
+                got = ss.calls_from_exml(f)
+                if got:
+                    log(f"  📄 {f.name}")
+                    calls.extend(got)
+
         if fmt == "huawei":
             for f in self._find_files("calllogs.xml", "CallLogs.xml", "call_log.xml"):
                 log(f"  📄 {f.name}")
@@ -1322,6 +1438,16 @@ class BackupImporter:
 
     def _run_wifi(self, fmt: str, log: Callable) -> ImportResult:
         nets: list[dict] = []
+
+        if fmt == "samsung":
+            from core import smartswitch as ss
+            for f in self._find_files("*"):
+                if "wificonfig" not in str(f).lower() or f.stat().st_size > (8 << 20):
+                    continue
+                got = ss.wifi_from_text(f)
+                if got:
+                    log(f"  📄 {f.name}")
+                    nets.extend(n for n in got if n not in nets)
 
         for f in self._find_files("WifiConfigStore.xml", "wifi_config.xml",
                                    "network_history.txt"):
@@ -1371,6 +1497,15 @@ class BackupImporter:
                 continue
             log(f"  🗄 {db.name}")
             entries.extend(self._browser_from_db(db))
+
+        # Samsung Internet bookmarks (SBrowser.db, upper-case BOOKMARKS table)
+        if fmt == "samsung":
+            from core import smartswitch as ss
+            for db in self._find_files("SBrowser.db", "sbrowser.db"):
+                got = ss.sbrowser_bookmarks(db)
+                if got:
+                    log(f"  🗄 {db.name} (bookmarks)")
+                    entries.extend(got)
 
         # Chrome bookmarks JSON
         for f in self._find_files("Bookmarks"):
@@ -1435,6 +1570,14 @@ class BackupImporter:
 
     def _run_apps(self, fmt: str, log: Callable) -> ImportResult:
         apps: list[dict] = []
+
+        if fmt == "samsung":
+            from core import smartswitch as ss
+            for f in self._find_files("AppList.json"):
+                got = ss.apps_from_applist(f)
+                if got:
+                    log(f"  📄 {f.name}")
+                    apps.extend(got)
 
         for xml in self._find_files("packages.xml"):
             log(f"  📄 {xml.name}")
@@ -1563,6 +1706,8 @@ class BackupImporter:
                     for r in results
                 },
             }
+            if self.smartswitch_info:
+                summary["smartswitch"] = self.smartswitch_info
             (self.output_dir / "import_summary.json").write_text(
                 json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
             )
