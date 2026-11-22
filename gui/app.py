@@ -107,13 +107,20 @@ class ForenziQApp(ctk.CTk):
         # CTk multiplies geometry()/minsize() values by the window scaling itself,
         # so we compute in UNscaled units (screen / scale) – otherwise the window
         # and its minimum size would exceed the screen at other resolutions/DPI.
-        s = self._scale or 1.0
-        sw = int(self.winfo_screenwidth() / s)
-        sh = int(self.winfo_screenheight() / s)
-        w = min(1280, sw - 80)
-        h = min(800, sh - 120)
-        min_w = min(1024, max(sw - 40, 640))
-        min_h = min(660, max(sh - 80, 480))
+        # The screen size must be in the same units as the window geometry: physical
+        # pixels of the work area, divided by the TOTAL scaling CTk applies (Windows
+        # display scaling × our resolution scaling). winfo_screenwidth() alone is not
+        # reliable – depending on the PC it reports logical or physical pixels, and with
+        # e.g. 150 % display scaling the minimum size then exceeded the screen, so the
+        # window could not be maximized.
+        work_w, work_h = self._work_area()
+        s = self._total_scaling()
+        sw = int(work_w / s)
+        sh = int(work_h / s)
+        w = min(1280, sw - 40)
+        h = min(800, sh - 40)
+        min_w = max(min(1024, sw - 20), 320)
+        min_h = max(min(660, sh - 60), 240)       # room for the title bar
         x = max((sw - w) // 2, 0)
         y = max((sh - h) // 3, 0)
         self.geometry(f"{w}x{h}+{x}+{y}")
@@ -149,6 +156,48 @@ class ForenziQApp(ctk.CTk):
         self._prewarm_after_id = self.after(1200, self._prewarm_panels)
         # Clean close – stops polling and running jobs, then destroys the window at once
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _total_scaling(self) -> float:
+        """Factor CTk multiplies geometry()/minsize() with (display DPI × window scaling)."""
+        try:
+            from customtkinter.windows.widgets.scaling import ScalingTracker
+            v = float(ScalingTracker.get_window_scaling(self))
+            if v > 0:
+                return v
+        except Exception:
+            pass
+        return self._scale or 1.0
+
+    def _work_area(self) -> tuple[int, int]:
+        """Size of the work area (screen without the taskbar) of the monitor the window
+        is on, in the physical pixels Tk uses for window geometry."""
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                from ctypes import wintypes
+
+                class _MonitorInfo(ctypes.Structure):
+                    _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                                ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+
+                user32 = ctypes.windll.user32
+                hwnd = user32.GetParent(self.winfo_id()) or self.winfo_id()
+                mon = user32.MonitorFromWindow(hwnd, 2)          # MONITOR_DEFAULTTONEAREST
+                info = _MonitorInfo()
+                info.cbSize = ctypes.sizeof(info)
+                if mon and user32.GetMonitorInfoW(mon, ctypes.byref(info)):
+                    r = info.rcWork
+                    if r.right - r.left > 0 and r.bottom - r.top > 0:
+                        return r.right - r.left, r.bottom - r.top
+            except Exception:
+                pass
+        # Fallback: Tk's screen size, assumed to be in logical units
+        try:
+            from customtkinter.windows.widgets.scaling import ScalingTracker
+            dpi = float(ScalingTracker.get_window_dpi_scaling(self))
+        except Exception:
+            dpi = 1.0
+        return int(self.winfo_screenwidth() * dpi), int(self.winfo_screenheight() * dpi) - 40
 
     def _maximize(self):
         """Maximize the window across the screen (title bar and window controls remain)."""
