@@ -179,12 +179,19 @@ def case_inputs(case_dir: str) -> list[tuple[str, str]]:
     out = []
     if not case_dir or not os.path.isdir(case_dir):
         return out
-    for name, tool in (("root_backup.tar.gz", "aleapp"), ("user_data_tree", "aleapp"),
-                       ("adb_backup", "aleapp")):
+    for name, tool in (("root_backup.tar.gz", "aleapp"), ("root_backup_extracted", "aleapp"),
+                       ("adb_backup_extracted", "aleapp"), ("user_data_tree", "aleapp")):
         p = os.path.join(case_dir, name)
-        if os.path.exists(p):
+        if os.path.isfile(p) or (os.path.isdir(p) and _non_empty(p)):
             out.append((tool, p))
     return out
+
+
+def _non_empty(folder: str) -> bool:
+    for _root, _dirs, files in os.walk(folder):
+        if files:
+            return True
+    return False
 
 
 # ── Run ──────────────────────────────────────────────────────────────────────
@@ -371,10 +378,15 @@ def read_lava(report_dir: str) -> tuple[dict, dict]:
     arts = meta.get("artifacts") or {}
     conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     try:
+        # A media cell holds a reference id (_lava_media_references.id) → media item →
+        # source_path = the original file (relative to the input). Item ids are accepted too.
         media = {}
         try:
-            for r in conn.execute("SELECT id, extraction_path, source_path FROM _lava_media_items"):
+            for r in conn.execute("SELECT id, source_path, extraction_path FROM _lava_media_items"):
                 media[str(r[0])] = r[1] or r[2] or ""
+            for r in conn.execute("SELECT id, media_item_id FROM _lava_media_references"):
+                if str(r[1]) in media:
+                    media[str(r[0])] = media[str(r[1])]
         except sqlite3.Error:
             pass
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
