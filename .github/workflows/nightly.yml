@@ -1,5 +1,6 @@
-# Nightly build: every push to main builds ForenziQ.exe on Windows and replaces the
-# single "nightly" pre-release. Stable releases (vX.Y.Z) are still created by hand.
+# Nightly build: every push to main runs the tests, builds ForenziQ.exe on Windows and
+# replaces the single "nightly" pre-release – only when all tests pass.
+# Pull requests run the tests only. Stable releases (vX.Y.Z) are still created by hand.
 name: Nightly build
 
 on:
@@ -9,11 +10,15 @@ on:
       - "**.md"
       - "docs/**"
       - "LICENSE"
+  pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   workflow_dispatch:
 
 # a newer push cancels an older running build
 concurrency:
-  group: nightly
+  group: nightly-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
   cancel-in-progress: true
 
 permissions:
@@ -38,9 +43,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller
+          pip install -r requirements.txt pyinstaller pytest
+
+      - name: Tests
+        run: python -m pytest tests -v
 
       - name: Download Android SDK Platform-Tools (ADB)
+        if: github.event_name != 'pull_request'
         # not stored in the repository – fetched from Google for every build
         run: |
           Invoke-WebRequest "https://dl.google.com/android/repository/platform-tools-latest-windows.zip" -OutFile pt.zip
@@ -49,6 +58,7 @@ jobs:
           Get-Content adb/source.properties
 
       - name: Stamp build id into core/version.py
+        if: github.event_name != 'pull_request'
         run: |
           $short = "${{ github.sha }}".Substring(0, 7)
           $file = "core/version.py"
@@ -62,9 +72,11 @@ jobs:
           Write-Host "Version: $ver"
 
       - name: Build ForenziQ.exe
+        if: github.event_name != 'pull_request'
         run: python -m PyInstaller ForenziQ.spec --noconfirm --clean
 
       - name: Checksum
+        if: github.event_name != 'pull_request'
         run: |
           if (-not (Test-Path dist/ForenziQ.exe)) { throw "dist/ForenziQ.exe missing" }
           $h = (Get-FileHash dist/ForenziQ.exe -Algorithm SHA256).Hash.ToLower()
@@ -73,6 +85,7 @@ jobs:
           Write-Host "SHA-256: $h  size: $((Get-Item dist/ForenziQ.exe).Length)"
 
       - name: Publish the "nightly" pre-release
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
