@@ -294,10 +294,26 @@ Imports data from backups without a connected device.
 
 1. **Select File** (archive) or **Select Folder** (unpacked backup).
 2. Keep *Auto-detect* or choose the format manually.
-3. Click **Start Import** and choose the output folder.
+3. If the backup is **encrypted** (ADB `.ab` or Xiaomi MIUI `.bak` with a password), a password field
+   appears next to the file name – enter the backup password.
+4. Click **Start Import**. The output folder is created automatically in `Documents`
+   (`ForenziQ_Import_<backup name>_<date>_<time>`).
 
 Typical imported data: contacts, SMS, call logs, Wi-Fi networks, calendar, browser history, notes and
 installed apps (depending on what the backup contains).
+
+**What is read from which backup:**
+
+| Backup | Support |
+|---|---|
+| ADB backup `.ab` | ✅ compressed / uncompressed, **encrypted (AES-256) with the backup password** |
+| Xiaomi MIUI `.bak` / AllBackup folder | ✅ including encrypted backups (password) |
+| Google Takeout | ✅ contacts (vCard), calendar (iCal), Chrome history and bookmarks, Keep notes. Takeout does not contain SMS or call logs. |
+| Samsung Smart Switch, Huawei HiSuite / Phone Clone | ⚠️ the format is recognised, but current versions **encrypt** the data – decryption is not supported yet; only unencrypted files (e.g. photos) are imported |
+| OPPO/realme, Vivo, Motorola, LG, Sony, OnePlus | ⚠️ the format is recognised; data is found only if the backup contains standard unencrypted Android files (contacts2.db, mmssms.db, vCard, …) |
+
+Archives from backups are extracted safely – entries that try to write outside the extraction folder
+(`../`, absolute paths, links) are skipped.
 
 ---
 

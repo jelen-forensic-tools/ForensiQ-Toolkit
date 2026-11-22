@@ -169,6 +169,173 @@ def _parse_vcf(text: str) -> list[dict]:
     return contacts
 
 
+# ── Android backup (.ab) – also embedded in MIUI .bak files ───────────────────
+
+AB_MAGIC = b"ANDROID BACKUP\n"
+_AB_CHUNK = 1 << 20
+
+
+class AbPasswordRequired(Exception):
+    """The Android backup is encrypted and no password was given."""
+
+
+class AbWrongPassword(Exception):
+    """The Android backup password is wrong."""
+
+
+def find_ab_offset(path: Path, limit: int = 65536) -> int:
+    """Offset of the 'ANDROID BACKUP' header within the first bytes of a file, or -1.
+
+    A plain .ab starts with it (offset 0); a MIUI .bak has its own short text
+    header first, followed by a regular Android backup stream.
+    """
+    try:
+        with open(path, "rb") as f:
+            head = f.read(limit)
+    except OSError:
+        return -1
+    return head.find(AB_MAGIC)
+
+
+def ab_is_encrypted(path: Path) -> bool:
+    """True if the file contains an Android backup stream encrypted with a password."""
+    off = find_ab_offset(path)
+    if off < 0:
+        return False
+    try:
+        with open(path, "rb") as f:
+            f.seek(off)
+            lines = [f.readline() for _ in range(4)]
+        return lines[3].strip() not in (b"none", b"")
+    except OSError:
+        return False
+
+
+def _aes_cbc_decrypt_unpad(key: bytes, iv: bytes, data: bytes) -> bytes:
+    from cryptography.hazmat.primitives import padding
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    dec = Cipher(algorithms.AES(key), modes.CBC(iv)).decryptor()
+    raw = dec.update(data) + dec.finalize()
+    unpadder = padding.PKCS7(128).unpadder()
+    return unpadder.update(raw) + unpadder.finalize()
+
+
+def extract_android_backup(src: Path, offset: int, tar_out: Path,
+                           password: str = "",
+                           stopped: Optional[Callable[[], bool]] = None) -> dict:
+    """Convert an Android backup stream (at `offset` in `src`) into a plain tar file.
+
+    Format (Android BackupManagerService):
+        ANDROID BACKUP\\n <version>\\n <compressed 0|1>\\n <encryption none|AES-256>\\n
+        [AES-256 only: user salt hex, checksum salt hex, PBKDF2 rounds,
+                       user key IV hex, encrypted master key blob hex – one per line]
+        body = [AES-256-CBC(master key)] ( [zlib deflate] ( tar ) )
+
+    The password key is PBKDF2-HMAC-SHA1(password, user salt, rounds, 32 bytes)
+    (UTF-8 password bytes for format version ≥ 2, low 8 bits per char for v1);
+    it decrypts the blob [len][master IV][len][master key][len][checksum].
+    The body is processed in chunks, so multi-GB backups do not need much memory.
+    Raises AbPasswordRequired / AbWrongPassword / ValueError.
+    """
+    import hashlib
+    with open(src, "rb") as f:
+        f.seek(offset)
+        if f.readline() != AB_MAGIC:
+            raise ValueError("not an Android backup stream")
+        try:
+            version = int(f.readline().strip() or b"0")
+        except ValueError:
+            version = 0
+        compressed = f.readline().strip() == b"1"
+        encryption = f.readline().strip().decode("ascii", "replace")
+
+        decryptor = unpadder = None
+        if encryption == "AES-256":
+            try:
+                user_salt = bytes.fromhex(f.readline().strip().decode())
+                f.readline()                                   # checksum salt (not needed)
+                rounds = int(f.readline().strip())
+                user_iv = bytes.fromhex(f.readline().strip().decode())
+                mk_blob = bytes.fromhex(f.readline().strip().decode())
+            except ValueError as e:
+                raise ValueError(f"damaged encryption header: {e}")
+            if not password:
+                raise AbPasswordRequired()
+            if version >= 2:
+                pw = password.encode("utf-8")
+            else:
+                pw = bytes(ord(c) & 0xFF for c in password)
+            user_key = hashlib.pbkdf2_hmac("sha1", pw, user_salt, rounds, 32)
+            try:
+                blob = _aes_cbc_decrypt_unpad(user_key, user_iv, mk_blob)
+                iv_len = blob[0]
+                mk_iv = blob[1:1 + iv_len]
+                mk_len = blob[1 + iv_len]
+                mk = blob[2 + iv_len:2 + iv_len + mk_len]
+            except (ValueError, IndexError):
+                raise AbWrongPassword()
+            if iv_len != 16 or mk_len != 32 or len(mk) != 32:
+                raise AbWrongPassword()
+            from cryptography.hazmat.primitives import padding
+            from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+            decryptor = Cipher(algorithms.AES(mk), modes.CBC(mk_iv)).decryptor()
+            unpadder = padding.PKCS7(128).unpadder()
+        elif encryption not in ("none", ""):
+            raise ValueError(f"unsupported encryption: {encryption}")
+
+        inflater = None
+        first = True
+        with open(tar_out, "wb") as out:
+            while True:
+                if stopped and stopped():
+                    raise ValueError("stopped")
+                chunk = f.read(_AB_CHUNK)
+                if not chunk:
+                    break
+                if decryptor:
+                    chunk = unpadder.update(decryptor.update(chunk))
+                if compressed and chunk:
+                    if first:
+                        # Android writes a zlib stream (header 0x78); accept raw deflate too
+                        inflater = zlib.decompressobj() if chunk[0] == 0x78 else zlib.decompressobj(-15)
+                        first = False
+                    chunk = inflater.decompress(chunk)
+                out.write(chunk)
+            tail = b""
+            if decryptor:
+                try:
+                    tail = unpadder.update(decryptor.finalize()) + unpadder.finalize()
+                except ValueError:
+                    raise ValueError("damaged backup (decryption padding)")
+            if compressed:
+                if inflater is None:
+                    inflater = zlib.decompressobj() if tail[:1] == b"\x78" else zlib.decompressobj(-15)
+                tail = inflater.decompress(tail) + inflater.flush()
+            out.write(tail)
+    return {"version": version, "compressed": compressed, "encryption": encryption or "none"}
+
+
+def safe_extract_tar(tar: tarfile.TarFile, dest: str) -> int:
+    """Extract a tar from an untrusted backup without path traversal or links
+    pointing outside `dest` (tarfile 'data' filter). Members that cannot be
+    extracted safely are skipped. Returns the number of extracted members."""
+    n = 0
+    use_filter = hasattr(tarfile, "data_filter")
+    for member in tar:
+        try:
+            if use_filter:
+                tar.extract(member, dest, filter="data")
+            else:
+                name = member.name.replace("\\", "/")
+                if name.startswith("/") or ".." in name.split("/") or member.issym() or member.islnk():
+                    continue
+                tar.extract(member, dest)
+            n += 1
+        except Exception:
+            continue
+    return n
+
+
 def _open_db(path: Path) -> Optional[sqlite3.Connection]:
     try:
         conn = sqlite3.connect(str(path))
@@ -188,10 +355,12 @@ def _safe_query(conn: sqlite3.Connection, sql: str, params=()) -> list:
 # ── Main class ────────────────────────────────────────────────────────────────
 
 class BackupImporter:
-    def __init__(self, backup_path: str, output_dir: str, fmt: str = "auto"):
+    def __init__(self, backup_path: str, output_dir: str, fmt: str = "auto",
+                 password: str = ""):
         self.backup_path = Path(backup_path)
         self.output_dir = Path(output_dir)
         self.fmt = fmt
+        self.password = password          # for encrypted Android / MIUI backups
         self._tmp: str | None = None
         self._extracted_root: Path | None = None
         self._extra_roots: list[Path] = []   # e.g. unwrapped MIUI .bak contents
@@ -203,6 +372,20 @@ class BackupImporter:
 
     def _stopped(self) -> bool:
         return self._stop_event.is_set()
+
+    def needs_password(self) -> bool:
+        """True if the backup is an encrypted Android/MIUI backup (password required)."""
+        p = self.backup_path
+        try:
+            if p.is_file():
+                return ab_is_encrypted(p)
+            if p.is_dir():
+                # MIUI AllBackup folder: all per-app .bak files share the password
+                for bak in p.rglob("*.bak"):
+                    return ab_is_encrypted(bak)
+        except OSError:
+            pass
+        return False
 
     # ── Format detection ──────────────────────────────────────────────────────
 
@@ -355,7 +538,7 @@ class BackupImporter:
             if suffix in (".gz", ".tar", ".tgz") or tarfile.is_tarfile(str(p)):
                 log(t("bkp.log_extract_tar"))
                 with tarfile.open(str(p)) as tar:
-                    tar.extractall(self._tmp)
+                    safe_extract_tar(tar, self._tmp)
                 self._extracted_root = Path(self._tmp)
                 return True
 
@@ -373,6 +556,8 @@ class BackupImporter:
             log(t("bkp.log_unsupported_fmt").format(suffix=suffix))
             return False
 
+        except (AbPasswordRequired, AbWrongPassword):
+            raise
         except Exception as e:
             log(t("bkp.log_extract_err").format(e=e))
             return False
@@ -399,12 +584,22 @@ class BackupImporter:
 
     def _unwrap_one_bak(self, bak_path: Path, dest: Path, log: Callable) -> bool:
         """
-        Extract a MIUI .bak by locating the embedded archive stream.
-        MIUI .bak = proprietary header + a gzip-compressed tar (sometimes a
-        plain tar or zip). We scan for the first known magic and extract it.
+        Extract a MIUI .bak (also tried for OPPO .nbr / LG .lbf).
+        MIUI .bak = short MIUI text header followed by a regular Android backup
+        stream ("ANDROID BACKUP", zlib-compressed tar, optionally AES-256
+        encrypted). Other wrappers are tried by scanning for gzip / zip / tar.
         """
         import io
         import gzip
+        off = find_ab_offset(bak_path)
+        if off >= 0:
+            tar_path = dest / "_backup.tar"
+            extract_android_backup(bak_path, off, tar_path, self.password, self._stopped)
+            with tarfile.open(str(tar_path)) as tar:
+                safe_extract_tar(tar, str(dest))
+            tar_path.unlink(missing_ok=True)
+            return True
+
         try:
             raw = bak_path.read_bytes()
         except OSError:
@@ -416,7 +611,7 @@ class BackupImporter:
             try:
                 data = gzip.GzipFile(fileobj=io.BytesIO(raw[gz:])).read()
                 with tarfile.open(fileobj=io.BytesIO(data)) as tar:
-                    tar.extractall(str(dest))
+                    safe_extract_tar(tar, str(dest))
                 return True
             except Exception:
                 pass
@@ -437,7 +632,7 @@ class BackupImporter:
             start = max(0, ustar - 257)
             try:
                 with tarfile.open(fileobj=io.BytesIO(raw[start:])) as tar:
-                    tar.extractall(str(dest))
+                    safe_extract_tar(tar, str(dest))
                 return True
             except Exception:
                 pass
@@ -445,27 +640,23 @@ class BackupImporter:
         return False
 
     def _extract_ab(self, ab_path: Path, out_dir: str, log: Callable) -> bool:
-        """Extract an ADB backup (.ab) – 4-line ASCII header + zlib-deflated tar."""
+        """Extract an ADB backup (.ab) – header + (encrypted) zlib-compressed tar."""
+        tar_path = os.path.join(out_dir, "_backup.tar")
         try:
-            with open(str(ab_path), "rb") as f:
-                for _ in range(4):
-                    f.readline()
-                compressed = f.read()
-
+            if ab_is_encrypted(ab_path):
+                log(t("bkp.log_ab_encrypted"))
             log(t("bkp.log_decompress"))
-            raw = zlib.decompress(compressed, -15)
-
-            tar_path = os.path.join(out_dir, "_backup.tar")
-            with open(tar_path, "wb") as f:
-                f.write(raw)
+            extract_android_backup(ab_path, 0, Path(tar_path), self.password, self._stopped)
 
             log(t("bkp.log_extract_tar2"))
             with tarfile.open(tar_path) as tar:
-                tar.extractall(out_dir)
+                safe_extract_tar(tar, out_dir)
             os.remove(tar_path)
 
             self._extracted_root = Path(out_dir)
             return True
+        except (AbPasswordRequired, AbWrongPassword):
+            raise
         except Exception as e:
             log(t("bkp.log_ab_err").format(e=e))
             return False
@@ -622,6 +813,10 @@ class BackupImporter:
             data = json.loads(json_path.read_text(encoding="utf-8"))
             items = data if isinstance(data, list) else data.get("messages", data.get("sms", []))
             for item in items:
+                # Only SMS-like items – skip e.g. Google Chat / Hangouts messages
+                if not isinstance(item, dict) or not (
+                        item.get("address") or item.get("sender_name") or item.get("phoneNumber")):
+                    continue
                 sms.append({
                     "address": item.get("sender_name") or item.get("address", ""),
                     "date":    item.get("date", "") or _ts_to_str(item.get("timestamp", "")),
@@ -874,6 +1069,52 @@ class BackupImporter:
 
         for root in (data.get("roots") or {}).values():
             _walk(root)
+        return out
+
+    def _browser_from_takeout_json(self, path: Path) -> list[dict]:
+        """Google Takeout Chrome history: {"Browser History": [{title, url, time_usec}]}."""
+        try:
+            data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        except Exception:
+            return []
+        items = data.get("Browser History") if isinstance(data, dict) else None
+        if not isinstance(items, list):
+            return []
+        out = []
+        for it in items:
+            if not isinstance(it, dict) or not it.get("url"):
+                continue
+            usec = it.get("time_usec")
+            try:
+                when = datetime.fromtimestamp(int(usec) / 1_000_000).strftime(
+                    "%Y-%m-%d %H:%M:%S") if usec else ""
+            except (ValueError, OverflowError, OSError):
+                when = ""
+            out.append({"type": "history", "url": it.get("url", ""),
+                        "title": it.get("title", ""), "visits": "",
+                        "last_visit": when})
+        return out
+
+    def _bookmarks_from_html(self, path: Path) -> list[dict]:
+        """Netscape bookmark file (Takeout Chrome 'Bookmarks.html', browser exports)."""
+        import html as _html
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            return []
+        if "<A " not in text.upper():
+            return []
+        out = []
+        for m in re.finditer(r'<A\s+([^>]*?)>(.*?)</A>', text, re.I | re.S):
+            attrs, title = m.group(1), m.group(2)
+            href = re.search(r'HREF="([^"]*)"', attrs, re.I)
+            if not href:
+                continue
+            added = re.search(r'ADD_DATE="(\d+)"', attrs, re.I)
+            out.append({"type": "bookmark", "url": _html.unescape(href.group(1)),
+                        "title": _html.unescape(re.sub(r"<[^>]+>", "", title)).strip(),
+                        "visits": "",
+                        "last_visit": _ts_to_str(added.group(1)) if added else ""})
         return out
 
     # ── Parsers: Notes ─────────────────────────────────────────────────────────
@@ -1136,6 +1377,20 @@ class BackupImporter:
             log(f"  📄 {f.name}")
             entries.extend(self._bookmarks_from_chrome_json(f))
 
+        # Google Takeout: Chrome history JSON + bookmarks HTML (Netscape format)
+        for f in self._find_files("*.json"):
+            if "history" in f.name.lower():
+                got = self._browser_from_takeout_json(f)
+                if got:
+                    log(f"  📄 {f.name}")
+                    entries.extend(got)
+        for f in self._find_files("*.html", "*.htm"):
+            if "bookmark" in f.name.lower():
+                got = self._bookmarks_from_html(f)
+                if got:
+                    log(f"  📄 {f.name}")
+                    entries.extend(got)
+
         if not entries:
             return ImportResult("bkp_browser", False, error=t("bkp.err_no_browser"))
 
@@ -1234,7 +1489,20 @@ class BackupImporter:
             log("─" * 52)
 
             # Extraction
-            if not self._ensure_extracted(log):
+            try:
+                extracted = self._ensure_extracted(log)
+            except AbPasswordRequired:
+                log("✗ " + t("bkp.err_need_password"))
+                self.cleanup()
+                done(False, t("bkp.err_need_password"))
+                return
+            except AbWrongPassword:
+                log("✗ " + t("bkp.err_wrong_password"))
+                self.cleanup()
+                done(False, t("bkp.err_wrong_password"))
+                return
+            if not extracted:
+                self.cleanup()
                 done(False, t("bkp.err_extract_fail"))
                 return
 

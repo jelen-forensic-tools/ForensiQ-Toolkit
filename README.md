@@ -17,8 +17,9 @@
   Wi-Fi networks, accounts, browser history, the full `/sdcard` tree, EXIF/GPS, file hashes; root modules
   for deleted data, WhatsApp and Viber
 - **Android physical dumps** – raw / GPT / sparse images, read-only ext4 parser (no mounting)
-- **Android vendor backups** – Samsung SmartSwitch, Huawei HiSuite, Xiaomi MIUI, Google Takeout, Sony,
-  OnePlus, OPPO/realme, Vivo, Motorola, LG, ADB `.ab` – with format auto-detection
+- **Android backups** – ADB `.ab` and Xiaomi MIUI backups (**incl. password-encrypted**), Google Takeout;
+  format auto-detection for Samsung, Huawei, OPPO/realme, Vivo, Motorola, LG, Sony and OnePlus backups
+  (see [limitations](#status-and-limitations))
 - **iOS** – live extraction (pymobiledevice3), iTunes/Finder backups **including encrypted backups**
   (WhatsApp, iMessage, …), SSH-ramdisk acquisition (checkm8)
 - **Nokia S30+** feature phones – Spreadtrum SC6531E flash dumps (contacts, SMS, calls, FAT12 files)
@@ -100,6 +101,9 @@ index are written only to the output folder you choose.
   synthetic data – validate them against known reference data before relying on them in a case.
 - Android dumps: ext4 only (F2FS and FBE/FDE-encrypted user data are reported as unsupported).
 - Nokia S30+: Spreadtrum SC6531E (MOCOR) only.
+- Backup import: ADB `.ab` and Xiaomi MIUI backups (incl. encrypted) and Google Takeout are parsed;
+  Samsung Smart Switch and Huawei HiSuite backups are recognised but their encrypted data cannot be
+  decrypted yet.
 
 ---
 

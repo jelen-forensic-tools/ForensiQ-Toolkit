@@ -295,10 +295,26 @@ Importuje data ze záloh bez připojeného zařízení.
 
 1. **Vybrat soubor** (archiv) nebo **Vybrat složku** (rozbalená záloha).
 2. Ponechte *Automatickou detekci* nebo zvolte formát ručně.
-3. Klikněte na **Spustit import** a zvolte výstupní složku.
+3. Je-li záloha **šifrovaná** (ADB `.ab` nebo Xiaomi MIUI `.bak` s heslem), objeví se vedle názvu
+   souboru pole pro heslo – zadejte heslo zálohy.
+4. Klikněte na **Spustit import**. Výstupní složka se vytvoří automaticky v `Dokumenty`
+   (`ForenziQ_Import_<název zálohy>_<datum>_<čas>`).
 
 Typicky importovaná data: kontakty, SMS, historie hovorů, Wi-Fi sítě, kalendář, historie prohlížeče,
 poznámky a nainstalované aplikace (podle toho, co záloha obsahuje).
+
+**Co se z které zálohy načte:**
+
+| Záloha | Podpora |
+|---|---|
+| ADB záloha `.ab` | ✅ s kompresí i bez, **šifrovaná (AES-256) s heslem zálohy** |
+| Xiaomi MIUI `.bak` / složka AllBackup | ✅ včetně šifrovaných záloh (heslo) |
+| Google Takeout | ✅ kontakty (vCard), kalendář (iCal), historie a záložky Chrome, poznámky Keep. SMS ani hovory Takeout neobsahuje. |
+| Samsung Smart Switch, Huawei HiSuite / Phone Clone | ⚠️ formát se rozpozná, ale současné verze data **šifrují** – dešifrování zatím není podporované; importují se jen nešifrované soubory (např. fotky) |
+| OPPO/realme, Vivo, Motorola, LG, Sony, OnePlus | ⚠️ formát se rozpozná; data se najdou, jen pokud záloha obsahuje standardní nešifrované soubory Androidu (contacts2.db, mmssms.db, vCard, …) |
+
+Archivy ze záloh se rozbalují bezpečně – položky, které se snaží zapsat mimo cílovou složku (`../`,
+absolutní cesty, odkazy), se přeskočí.
 
 ---
 

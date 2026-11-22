@@ -118,6 +118,11 @@ class BackupImportPanel(ctk.CTkFrame):
         self._detected_badge = ctk.CTkLabel(tb.source, text="", font=th.f_small(),
                                             text_color=ACCENT, anchor="w")
         self._detected_badge.pack(side="left", padx=(16, 0))
+        # Password of an encrypted Android / MIUI backup (shown only when needed)
+        self._password_entry = ctk.CTkEntry(
+            tb.source, width=180, height=th.BTN_H, show="•",
+            placeholder_text=t("bkp.password"), fg_color=th.BG_INPUT,
+            border_color=th.BORDER, font=th.f_body())
 
         self._status_bar = ctk.CTkLabel(tb.info, text="", font=th.f_body(),
                                         text_color=TEXT_MUTED, anchor="w")
@@ -194,7 +199,7 @@ class BackupImportPanel(ctk.CTkFrame):
         path = filedialog.askopenfilename(
             title=t("bkp.pick_file_title"),
             filetypes=[
-                (t("bkp.all_backups"), "*.zip *.hbk *.bak *.bk *.ab *.gz *.tar *.tgz"),
+                (t("bkp.all_backups"), "*.zip *.hbk *.bak *.bk *.ab *.gz *.tar *.tgz *.nbr *.lbf"),
                 ("Samsung SmartSwitch", "*.zip"),
                 ("Huawei HiSuite",      "*.hbk"),
                 ("MIUI Backup",         "*.bak"),
@@ -221,6 +226,12 @@ class BackupImportPanel(ctk.CTkFrame):
         tmp = BackupImporter(path, "", "auto")
         detected = tmp.detect_format()
         self._detected_fmt = detected
+        # Encrypted Android / MIUI backup → ask for the backup password
+        self._password_entry.delete(0, "end")
+        if tmp.needs_password():
+            self._password_entry.pack(side="left", padx=(12, 0))
+        else:
+            self._password_entry.pack_forget()
         if detected and detected != "unknown":
             self._detected_badge.configure(
                 text=f"{name}  →  {_fmt_label(detected)}",
@@ -263,7 +274,8 @@ class BackupImportPanel(ctk.CTkFrame):
         self._log_clear()
 
         fmt = self._selected_fmt.get()
-        self._importer = BackupImporter(self._backup_path, self._output_dir, fmt)
+        self._importer = BackupImporter(self._backup_path, self._output_dir, fmt,
+                                        password=self._password_entry.get())
         self._importer.run(
             modules=selected,
             log=self._log_append_ts,
