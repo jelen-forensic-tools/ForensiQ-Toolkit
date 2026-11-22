@@ -189,7 +189,11 @@ class LeappPanel(ctk.CTkFrame):
 
     def _update_path_hint(self):
         p = self._path_entry.get().strip()
-        if p and os.path.isfile(p):
+        exe, host = leapp.arch_mismatch(p) if p and os.path.isfile(p) else ("", "")
+        if exe:
+            self._path_hint.configure(text=t("leapp.wrong_arch").format(exe=exe, host=host),
+                                      text_color=th.RED)
+        elif p and os.path.isfile(p):
             self._path_hint.configure(text=t("leapp.path_ok"), text_color=th.GREEN)
         else:
             self._path_hint.configure(text=t("leapp.path_missing").format(
@@ -288,6 +292,12 @@ class LeappPanel(ctk.CTkFrame):
         path = self._path_entry.get().strip()
         if not path or not os.path.isfile(path):
             self._set_status(t("leapp.err_tool"), th.RED)
+            return
+        exe, host = leapp.arch_mismatch(path)
+        if exe:
+            msg = t("leapp.wrong_arch").format(exe=exe, host=host)
+            self._set_status("✗ " + t("leapp.err_tool"), th.RED)
+            self._log.write(msg, "err")
             return
         if not self._input or not os.path.exists(self._input):
             self._set_status(t("leapp.err_input"), th.RED)

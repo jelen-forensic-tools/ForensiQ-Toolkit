@@ -65,6 +65,42 @@ def tool_command(path: str) -> list[str]:
     return [path]
 
 
+_PE_MACHINES = {0x8664: "x64", 0xAA64: "arm64", 0x014C: "x86"}
+
+
+def exe_arch(path: str) -> str:
+    """CPU architecture of a Windows .exe from its PE header ('' when unknown / not an exe)."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4096)
+        if head[:2] != b"MZ":
+            return ""
+        pe = int.from_bytes(head[0x3C:0x40], "little")
+        if head[pe:pe + 4] != b"PE\0\0":
+            return ""
+        return _PE_MACHINES.get(int.from_bytes(head[pe + 4:pe + 6], "little"), "")
+    except (OSError, ValueError):
+        return ""
+
+
+def host_arch() -> str:
+    """Architecture of this Windows machine (x64 / arm64 / x86)."""
+    a = (os.environ.get("PROCESSOR_ARCHITEW6432") or os.environ.get("PROCESSOR_ARCHITECTURE") or "").upper()
+    return {"AMD64": "x64", "ARM64": "arm64", "X86": "x86"}.get(a, "")
+
+
+def arch_mismatch(path: str) -> tuple[str, str]:
+    """(exe arch, machine arch) when the .exe cannot run here, else ('', '').
+    x64 Windows runs x86 binaries; ARM64 Windows emulates x64 and x86."""
+    if os.name != "nt" or not path.lower().endswith(".exe"):
+        return "", ""
+    exe, host = exe_arch(path), host_arch()
+    if not exe or not host or exe == host:
+        return "", ""
+    ok = {"x64": {"x86"}, "arm64": {"x64", "x86"}, "x86": set()}
+    return ("", "") if exe in ok.get(host, set()) else (exe, host)
+
+
 def _find_python() -> str:
     """A real Python interpreter from PATH (the WindowsApps 'python' alias only opens the
     Store and would hang a background run)."""
