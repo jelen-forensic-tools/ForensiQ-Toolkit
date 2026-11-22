@@ -15,6 +15,7 @@ from .logo import logo_ctk_image
 from core.adb_manager import ADBManager
 from core.evidence import generate_manifest, verify_manifest, MANIFEST_TXT
 from core.i18n import t, set_lang, get_lang, retranslate
+from core.version import __version__
 
 
 ctk.set_appearance_mode("dark")
@@ -97,7 +98,7 @@ class ForenziQApp(ctk.CTk):
             ctk.set_widget_scaling(self._scale)
             ctk.set_window_scaling(self._scale)
 
-        self.title("ForenziQ Toolkit")
+        self.title(f"ForenziQ Toolkit v{__version__}")
         self._set_app_icon()
         # Window size adapted to the screen. The "restored" size and the minimum
         # size are ALWAYS clamped to fit the current screen (otherwise on small
@@ -237,7 +238,7 @@ class ForenziQApp(ctk.CTk):
         logo_frame.grid(row=0, column=0, padx=20, pady=(22, 4), sticky="w")
 
         # Logo: "Forenzi" + magnifier instead of Q, "Toolkit", version – one image, aligned exactly
-        self._logo_img = logo_ctk_image(accent=ACCENT, ver_color=TEXT_MUTED, version="v1.0")
+        self._logo_img = logo_ctk_image(accent=ACCENT, ver_color=TEXT_MUTED, version=f"v{__version__}")
         ctk.CTkLabel(logo_frame, text="", image=self._logo_img).pack(anchor="w")
 
         lang_frame_top = ctk.CTkFrame(top_frame, fg_color="transparent")

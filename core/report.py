@@ -186,7 +186,8 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
         header_line.append(f"{t('rpt.hdr_evidence')}: {evidence}")
     header_line.append(device_label)
     header_text = "    ·    ".join(header_line)
-    footer_left = f"ForenziQ Toolkit  ·  {timestamp}"
+    from .version import __version__
+    footer_left = f"ForenziQ Toolkit v{__version__}  ·  {timestamp}"
 
     def _decorate(canvas, docu):
         page_num = canvas.getPageNumber()
