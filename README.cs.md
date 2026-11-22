@@ -1,4 +1,4 @@
-# ForenziQ Toolkit &nbsp; <a href="https://buymeacoffee.com/jelenl"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="36"></a>
+# ForenziQ Toolkit &nbsp; <a href="https://buymeacoffee.com/jelenl"><img src="docs/buy-me-a-beer.svg" alt="Buy me a beer, I don't drink coffee" height="36"></a>
 
 **Desktopová sada nástrojů pro forenzní zajištění a analýzu dat z mobilních zařízení – Android, iOS a Nokia S30+.**
 

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="330" height="44" viewBox="0 0 330 44" role="img" aria-label="Buy me a beer, I don't drink coffee">
+  <title>Buy me a beer, I don't drink coffee</title>
+  <rect x="0.5" y="0.5" width="329" height="43" rx="9" fill="#FFDD00" stroke="#000000" stroke-opacity="0.15"/>
+  <!-- beer mug -->
+  <g transform="translate(13 8)">
+    <path d="M17 9 h4.5 a4.5 4.5 0 0 1 4.5 4.5 v4 a4.5 4.5 0 0 1 -4.5 4.5 H17" fill="none" stroke="#1d1d1d" stroke-width="2.4"/>
+    <rect x="2" y="7" width="16" height="21" rx="2.5" fill="#F5A623" stroke="#1d1d1d" stroke-width="2.4"/>
+    <path d="M7 12 v12 M12.5 12 v12" stroke="#ffffff" stroke-opacity="0.55" stroke-width="1.6" stroke-linecap="round"/>
+    <path d="M1 8.5 q0 -5 5 -5 q1.5 -3.2 5 -2.5 q3.2 -1.6 5.5 1.2 q3.6 0 3.6 4.2 q0 2.6 -2.6 2.6 H1.6 z" fill="#ffffff" stroke="#1d1d1d" stroke-width="2" stroke-linejoin="round"/>
+  </g>
+  <text x="50" y="28" textLength="266" lengthAdjust="spacingAndGlyphs"
+        font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+        font-size="16" font-weight="700" fill="#1d1d1d">Buy me a beer, I don't drink coffee</text>
+</svg>
