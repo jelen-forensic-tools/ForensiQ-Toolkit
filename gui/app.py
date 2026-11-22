@@ -795,7 +795,8 @@ class ForenziQApp(ctk.CTk):
         report_path = ""
         try:
             from core.report import generate_report
-            report_path = generate_report(results, self.device_info, self.output_dir)
+            report_path = generate_report(results, self.device_info, self.output_dir,
+                                          case_meta=getattr(self, "_case_meta", None))
         except Exception as e:
             print(f"HTML report error: {e}")
         self.after(0, lambda: self._finish_extraction(results, report_path, was_stopped))
@@ -983,8 +984,26 @@ class ForenziQApp(ctk.CTk):
         if not self.output_dir:
             return
         report = os.path.join(self.output_dir, "report.html")
-        if os.path.exists(report):
-            os.startfile(report)
+        results = getattr(self, "_extraction_results", None)
+        if not results:
+            # e.g. a backup/iOS flow that wrote its own report.html – just open it
+            if os.path.exists(report):
+                os.startfile(report)
+            return
+        case_meta = getattr(self, "_case_meta", None)
+
+        # Re-generate so the report reflects the current case details and Settings
+        # (branding, logos) – same behaviour as the PDF export.
+        def _worker():
+            try:
+                from core.report import generate_report
+                path = generate_report(results, self.device_info, self.output_dir,
+                                       case_meta=case_meta)
+                self.after(0, lambda: os.startfile(path))
+            except Exception as e:
+                self.after(0, lambda err=e: self._show_error(str(err)))
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _show_error(self, msg: str):
         dialog = ctk.CTkToplevel(self)

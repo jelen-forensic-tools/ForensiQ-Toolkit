@@ -17,13 +17,14 @@ import os
 from typing import Callable, Optional
 
 TOOL_NAME = "ForenziQ"
-TOOL_VERSION = "1.0"
+from .version import __version__ as TOOL_VERSION
 
 MANIFEST_NAME = "evidence_manifest.json"
 MANIFEST_TXT = "evidence_manifest.txt"
 
-# Outputs of this step itself – never hashed into the manifest.
-_SELF_FILES = {MANIFEST_NAME, MANIFEST_TXT}
+# Outputs of this step itself and generated reports (work product that is re-created
+# whenever a report is exported, e.g. with the case details) – never hashed into the manifest.
+_SELF_FILES = {MANIFEST_NAME, MANIFEST_TXT, "report.html", "report.pdf", "report.xlsx"}
 # Analyst work product (search index, tags, notes) – created after the
 # acquisition and changed during analysis, so it does not belong in the evidence manifest.
 _SELF_DIRS = ("_case",)

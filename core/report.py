@@ -28,6 +28,81 @@ def _report_asset(*parts) -> str:
     return os.path.join(base, "assets", *parts)
 
 
+# ── Shared by the PDF and HTML report ─────────────────────────────────────────
+
+MAX_THUMBS = 400          # photo previews per module (keeps report size reasonable)
+_PHOTO_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
+try:                      # HEIC/HEIF (iPhone photos) only if pillow-heif is installed
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+    _PHOTO_EXT |= {".heic", ".heif"}
+except Exception:
+    pass
+
+
+def _collect_photos(r, shown: set) -> list:
+    """Local image files of a result as (path, display name): the folder the module
+    copied media into, or local paths stored in its records. Paths already in
+    `shown` are skipped (and new ones added), so each photo is listed only once."""
+    found = []
+    fp = getattr(r, "file_path", "") or ""
+    if fp and os.path.isdir(fp):
+        for root, _dirs, names in os.walk(fp):
+            for name in sorted(names):
+                if os.path.splitext(name)[1].lower() in _PHOTO_EXT:
+                    found.append((os.path.join(root, name), name))
+    elif isinstance(r.data, list):
+        for rec in r.data:
+            if not isinstance(rec, dict):
+                continue
+            for k in ("local_path", "path", "_local"):
+                p = rec.get(k)
+                if (isinstance(p, str) and os.path.splitext(p)[1].lower() in _PHOTO_EXT
+                        and os.path.isfile(p)):
+                    found.append((p, rec.get("filename") or os.path.basename(p)))
+                    break
+    out = []
+    for p, name in found:
+        key = os.path.normcase(os.path.abspath(p))
+        if key not in shown:
+            shown.add(key)
+            out.append((p, name))
+    return out
+
+
+def _thumb_image(path: str, px: int = 480):
+    """Downscaled, orientation-corrected RGB copy of an image; None if undecodable."""
+    try:
+        from PIL import Image as PILImage, ImageOps
+        with PILImage.open(path) as im:
+            im.draft("RGB", (px, px))
+            im = ImageOps.exif_transpose(im).convert("RGB")
+            im.thumbnail((px, px))
+            return im
+    except Exception:
+        return None
+
+
+def _short_name(name: str, limit: int = 30) -> str:
+    """Middle ellipsis that keeps the extension (fits one caption line)."""
+    return name if len(name) <= limit else name[:limit - 11] + "…" + name[-10:]
+
+
+def _case_info(case_meta: dict | None) -> dict:
+    """Case details + report branding settings (examiner/organisation fall back to Settings)."""
+    from . import settings as _settings
+    cfg = _settings.load()
+    cm = case_meta or {}
+    return {
+        "cfg":      cfg,
+        "case_no":  cm.get("case_number") or "",
+        "evidence": cm.get("evidence_id") or "",
+        "examiner": cm.get("examiner") or cfg.get("report_examiner", ""),
+        "org":      cm.get("organization") or cfg.get("report_organization", ""),
+        "note":     cm.get("note") or "",
+    }
+
+
 def generate_pdf_report(results: list, device_info: dict, output_dir: str,
                         case_meta: dict | None = None) -> str:
     """Professional forensic PDF report: cover page with logos and case details,
@@ -89,14 +164,7 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
     HEADER_H = 1.25 * cm    # band for the header on content pages
     FOOTER_H = 1.2 * cm
     MAX_ROWS_PDF = 500
-    MAX_THUMBS_PDF = 400          # photo previews per module (keeps PDF size reasonable)
-    PDF_IMG_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
-    try:                          # HEIC/HEIF (iPhone photos) only if pillow-heif is installed
-        import pillow_heif
-        pillow_heif.register_heif_opener()
-        PDF_IMG_EXT |= {".heic", ".heif"}
-    except Exception:
-        pass
+    MAX_THUMBS_PDF = MAX_THUMBS
     from xml.sax.saxutils import escape as _xml_escape
 
     timestamp = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
@@ -111,14 +179,10 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
 
     # Settings (report branding) – examiner/organisation are taken from the settings
     # if missing in case_meta; the company logo and block switches come from Settings.
-    from . import settings as _settings
-    _cfg = _settings.load()
-
-    case_no   = case_meta.get("case_number") or ""
-    evidence  = case_meta.get("evidence_id") or ""
-    examiner  = case_meta.get("examiner") or _cfg.get("report_examiner", "")
-    org       = case_meta.get("organization") or _cfg.get("report_organization", "")
-    case_note = case_meta.get("note") or ""
+    _ci = _case_info(case_meta)
+    _cfg = _ci["cfg"]
+    case_no, evidence = _ci["case_no"], _ci["evidence"]
+    examiner, org, case_note = _ci["examiner"], _ci["org"], _ci["note"]
     no_case   = t("rpt.no_case")
 
     ok_count   = sum(1 for r in results if r.success)
@@ -476,46 +540,15 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
     s_gal = _st("gal", font=FB, size=9, color=C_NAVY, before=8, after=4, leading=12)
     s_gal.keepWithNext = True
 
-    def _collect_photos(r):
-        """Local image files belonging to a result: the folder the module copied
-        media into, or local paths stored in its records."""
-        found = []
-        fp = getattr(r, "file_path", "") or ""
-        if fp and os.path.isdir(fp):
-            for root, _dirs, names in os.walk(fp):
-                for name in sorted(names):
-                    if os.path.splitext(name)[1].lower() in PDF_IMG_EXT:
-                        found.append((os.path.join(root, name), name))
-        elif isinstance(r.data, list):
-            for rec in r.data:
-                if not isinstance(rec, dict):
-                    continue
-                for k in ("local_path", "path", "_local"):
-                    p = rec.get(k)
-                    if (isinstance(p, str) and os.path.splitext(p)[1].lower() in PDF_IMG_EXT
-                            and os.path.isfile(p)):
-                        found.append((p, rec.get("filename") or os.path.basename(p)))
-                        break
-        out = []
-        for p, name in found:
-            key = os.path.normcase(os.path.abspath(p))
-            if key not in shown_photos:
-                shown_photos.add(key)
-                out.append((p, name))
-        return out
-
     def _thumb(path):
-        """Downscaled, orientation-corrected JPEG copy; None if it cannot be decoded."""
+        """Downscaled JPEG copy in the temp folder as a reportlab Image; None if undecodable."""
+        im = _thumb_image(path, 480)
+        if im is None:
+            return None
         try:
-            from PIL import Image as PILImage, ImageOps
-            with PILImage.open(path) as im:
-                im.draft("RGB", (480, 480))
-                im = ImageOps.exif_transpose(im)
-                im = im.convert("RGB")
-                im.thumbnail((480, 480))
-                out = os.path.join(thumb_dir, f"t{len(os.listdir(thumb_dir))}.jpg")
-                im.save(out, "JPEG", quality=72)
-                w, h = im.size
+            out = os.path.join(thumb_dir, f"t{len(os.listdir(thumb_dir))}.jpg")
+            im.save(out, "JPEG", quality=72)
+            w, h = im.size
             sc = min(THUMB_BOX_W / w, THUMB_BOX_H / h)
             return Image(out, width=w * sc, height=h * sc)
         except Exception:
@@ -526,8 +559,7 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
         cells = []
         for p, name in photos[:MAX_THUMBS_PDF]:
             img = _thumb(p) or Paragraph(t("rpt.no_preview"), s_thumb)
-            # middle ellipsis keeps the extension and fits one line under the thumbnail
-            cap = name if len(name) <= 30 else name[:19] + "…" + name[-10:]
+            cap = _short_name(name)
             cells.append([img, Spacer(1, 2), Paragraph(_xml_escape(cap), s_thumb)])
         if not cells:
             return []
@@ -574,7 +606,7 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
                     ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
                 ]))
                 block.append(kv_tbl)
-        block.extend(_gallery(_collect_photos(r)))
+        block.extend(_gallery(_collect_photos(r, shown_photos)))
         # keepWithNext keeps the module heading with its table (no KeepTogether → stable
         # pagination and TOC).
         story.extend(block)
@@ -742,367 +774,366 @@ def generate_excel_report(results: list, device_info: dict, output_dir: str) -> 
     return xlsx_path
 
 
-def generate_report(results: list, device_info: dict, output_dir: str) -> str:
-    """Generate a professional HTML report with pagination and search."""
-    import json as _json
+def generate_report(results: list, device_info: dict, output_dir: str,
+                    case_meta: dict | None = None) -> str:
+    """HTML report with the same structure and look as the PDF report: cover with logos
+    and case details, table of contents, device information, extraction summary and
+    extracted data with photo previews. Tables stay interactive (search, sort, paging);
+    printing renders all rows. Self-contained single file (logos and thumbnails embedded)."""
+    import base64
+    import io
     import html as _html
+    from .version import __version__
 
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
     report_path = os.path.join(output_dir, "report.html")
 
-    model        = device_info.get("model", "N/A")
     manufacturer = device_info.get("manufacturer", "N/A")
+    model        = device_info.get("model", "N/A")
     android      = device_info.get("android", "N/A")
     serial       = device_info.get("serial", "N/A")
+    imei         = device_info.get("imei", "N/A")
+    device_label = f"{manufacturer} {model}".strip() or "N/A"
 
-    def _safe(v) -> str:
-        import re
-        s = str(v) if v is not None else ""
-        s = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", s)
-        return _html.escape(s)
+    ci = _case_info(case_meta)
+    cfg = ci["cfg"]
+    no_case = t("rpt.no_case")
 
-    # Prepare JSON data for the JS engine (all data, no limit)
-    js_modules = []
-    for r in results:
-        entry = {
-            "key":     r.module,
-            "label":   r.label,
-            "success": r.success,
-            "count":   r.count,
-            "error":   r.error if not r.success else "",
-            "type":    "none",
-            "columns": [],
-            "rows":    [],
-            "kv":      {},
-        }
-        if r.success and r.data:
-            if isinstance(r.data, list) and r.data and isinstance(r.data[0], dict):
-                entry["type"]    = "table"
-                col_keys = list(r.data[0].keys())
-                entry["columns"] = [field_label(k) for k in col_keys]
-                entry["rows"]    = [
-                    [str(row.get(k, "")) for k in col_keys]
-                    for row in r.data
-                ]
-            elif isinstance(r.data, dict):
-                entry["type"] = "kv"
-                entry["kv"]   = {field_label(k): str(v) for k, v in r.data.items()}
-        js_modules.append(entry)
-
-    js_data = _json.dumps(js_modules, ensure_ascii=False)
-    js_tr = _json.dumps({
-        "search":     t("rpt.js_search"),
-        "no_data":    t("rpt.js_no_data"),
-        "error":      t("rpt.js_error"),
-        "shown":      t("rpt.js_shown"),
-        "prev":       t("rpt.js_prev"),
-        "next":       t("rpt.js_next"),
-        "records":    t("rpt.js_records"),
-        "status_err": t("rpt.status_err"),
-    }, ensure_ascii=False)
-
-    # Summary for the dashboard
     ok_count   = sum(1 for r in results if r.success)
     fail_count = len(results) - ok_count
     total_rec  = sum(r.count for r in results if r.success)
 
-    # Device info rows
-    device_fields_html = ""
-    important = ["manufacturer", "model", "android", "sdk", "serial", "imei",
-                 "battery", "storage_total", "storage_free", "security_patch"]
-    shown = {k: device_info[k] for k in important if k in device_info}
-    for k, v in shown.items():
-        label = _dev_label(k)
-        device_fields_html += f'<div class="df"><span class="dl">{_safe(label)}</span><span class="dv">{_safe(v)}</span></div>\n'
+    def esc(v) -> str:
+        s = str(v) if v is not None else ""
+        s = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", s)
+        return _html.escape(s)
 
-    html = f"""<!DOCTYPE html>
-<html lang="{get_lang()}">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{_safe(t("rpt.title"))} — {_safe(model)}</title>
-<style>
-*{{box-sizing:border-box;margin:0;padding:0}}
-body{{font-family:'Segoe UI',Arial,sans-serif;background:#0b0d17;color:#d8dce8;min-height:100vh}}
-a{{color:#00d4ff;text-decoration:none}}
-/* ── Layout ── */
-.wrap{{max-width:1400px;margin:0 auto;padding:28px 24px}}
-/* ── Header ── */
-.rpt-header{{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:28px;border-bottom:1px solid #1e2a4a;padding-bottom:18px}}
-.rpt-title{{font-size:22px;font-weight:700;color:#00d4ff;letter-spacing:.5px}}
-.rpt-title span{{color:#fff}}
-.rpt-meta{{font-size:11px;color:#556;text-align:right;line-height:1.6}}
-/* ── Summary cards ── */
-.summary{{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px;margin-bottom:26px}}
-.sc{{background:#131929;border:1px solid #1e2a4a;border-radius:10px;padding:16px 20px}}
-.sc .sv{{font-size:26px;font-weight:700;color:#00d4ff}}
-.sc .sl{{font-size:11px;color:#556;margin-top:4px;text-transform:uppercase;letter-spacing:.5px}}
-.sc.ok .sv{{color:#00c853}}.sc.fail .sv{{color:#ff5252}}.sc.rec .sv{{color:#00d4ff}}
-/* ── Device info ── */
-.dev-card{{background:#131929;border:1px solid #1e2a4a;border-radius:10px;padding:20px;margin-bottom:26px}}
-.dev-card h2{{font-size:12px;color:#556;text-transform:uppercase;letter-spacing:.8px;margin-bottom:14px}}
-.dev-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}}
-.df{{display:flex;flex-direction:column}}
-.dl{{font-size:10px;color:#556;text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px}}
-.dv{{font-size:13px;color:#e8ecf8;font-weight:500}}
-/* ── Module cards ── */
-.mod-card{{background:#131929;border:1px solid #1e2a4a;border-radius:10px;margin-bottom:14px;overflow:hidden}}
-.mod-hdr{{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;cursor:pointer;user-select:none;background:#161d30;transition:background .15s}}
-.mod-hdr:hover{{background:#1a2440}}
-.mod-hdr-left{{display:flex;align-items:center;gap:10px}}
-.mod-icon{{font-size:18px;width:28px;text-align:center}}
-.mod-name{{font-size:14px;font-weight:600;color:#c8d4f0}}
-.mod-badge{{font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600}}
-.badge-ok{{background:#003d1a;color:#00c853}}.badge-fail{{background:#3d0000;color:#ff5252}}
-.mod-count{{font-size:12px;color:#556;margin-left:8px}}
-.chevron{{font-size:10px;color:#556;transition:transform .2s}}
-.mod-body{{display:none;padding:0 16px 16px}}
-.mod-body.open{{display:block}}
-/* ── Table toolbar ── */
-.tbl-toolbar{{display:flex;align-items:center;gap:10px;padding:12px 0 8px;flex-wrap:wrap}}
-.search-box{{flex:1;min-width:180px;max-width:340px;background:#0d1120;border:1px solid #2a3a5a;border-radius:6px;padding:6px 12px;color:#d8dce8;font-size:12px;outline:none}}
-.search-box:focus{{border-color:#00d4ff}}
-.page-info{{font-size:12px;color:#556;margin-left:auto}}
-.pager{{display:flex;gap:4px}}
-.pager button{{background:#1a2440;border:1px solid #2a3a5a;color:#99aac8;border-radius:5px;padding:4px 10px;font-size:12px;cursor:pointer}}
-.pager button:hover{{background:#243050;color:#fff}}
-.pager button.active{{background:#00d4ff;color:#000;border-color:#00d4ff;font-weight:700}}
-.pager button:disabled{{opacity:.35;cursor:default}}
-/* ── Data table ── */
-.tbl-wrap{{overflow-x:auto;border-radius:6px;border:1px solid #1e2a4a}}
-table.dt{{width:100%;border-collapse:collapse;font-size:12px;min-width:400px}}
-table.dt thead tr{{background:#0d1120}}
-table.dt th{{padding:9px 12px;color:#00d4ff;font-weight:600;text-align:left;white-space:nowrap;border-bottom:1px solid #1e2a4a;cursor:pointer;user-select:none}}
-table.dt th:hover{{color:#fff}}
-table.dt th .sort-arrow{{color:#2a3a5a;font-size:9px;margin-left:3px}}
-table.dt th.sort-asc .sort-arrow::after{{content:'▲';color:#00d4ff}}
-table.dt th.sort-desc .sort-arrow::after{{content:'▼';color:#00d4ff}}
-table.dt th:not(.sort-asc):not(.sort-desc) .sort-arrow::after{{content:'⇅'}}
-table.dt td{{padding:7px 12px;border-bottom:1px solid #0f1828;vertical-align:top;max-width:340px;overflow-wrap:break-word}}
-table.dt tr:nth-child(even) td{{background:#10172a}}
-table.dt tr:hover td{{background:#1a2440}}
-table.dt td mark{{background:#00d4ff22;color:#00d4ff;border-radius:2px;padding:0 2px}}
-/* ── KV table ── */
-table.kv{{width:100%;border-collapse:collapse;font-size:13px}}
-table.kv td{{padding:8px 14px;border-bottom:1px solid #0f1828;vertical-align:top}}
-table.kv tr:nth-child(even) td{{background:#10172a}}
-table.kv td:first-child{{color:#00d4ff;font-weight:600;width:220px;white-space:nowrap}}
-/* ── No data ── */
-.no-data{{padding:24px;text-align:center;color:#556;font-size:13px}}
-/* ── Footer ── */
-footer{{margin-top:36px;padding-top:18px;border-top:1px solid #1e2a4a;text-align:center;color:#334;font-size:11px;line-height:1.8}}
-</style>
-</head>
-<body>
-<div class="wrap">
+    def data_uri(path: str, max_px: int) -> str:
+        """Embed an image (logo) as a PNG data URI; '' if missing/undecodable."""
+        if not path or not os.path.isfile(path):
+            return ""
+        try:
+            from PIL import Image as PILImage
+            with PILImage.open(path) as im:
+                im = im.convert("RGBA")
+                im.thumbnail((max_px, max_px))
+                buf = io.BytesIO()
+                im.save(buf, "PNG", optimize=True)
+            return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+        except Exception:
+            return ""
 
-<div class="rpt-header">
-  <div>
-    <div class="rpt-title">{_safe(t("rpt.title"))}</div>
-    <div style="font-size:12px;color:#556;margin-top:4px">{_safe(manufacturer)} {_safe(model)} &nbsp;·&nbsp; Android {_safe(android)} &nbsp;·&nbsp; S/N: {_safe(serial)}</div>
-  </div>
-  <div class="rpt-meta">{_safe(t("rpt.generated").format(ts=timestamp))}</div>
-</div>
+    # ── Header line (same as the PDF page header) ─────────────────────────────
+    header_line = []
+    if ci["case_no"]:
+        header_line.append(f"{t('rpt.hdr_case')}: {ci['case_no']}")
+    if ci["evidence"]:
+        header_line.append(f"{t('rpt.hdr_evidence')}: {ci['evidence']}")
+    header_line.append(device_label)
+    header_text = "  ·  ".join(header_line)
 
-<div class="summary">
-  <div class="sc ok"><div class="sv">{ok_count}</div><div class="sl">{_safe(t("rpt.ok_modules"))}</div></div>
-  <div class="sc fail"><div class="sv">{fail_count}</div><div class="sl">{_safe(t("rpt.failed_modules"))}</div></div>
-  <div class="sc rec"><div class="sv">{total_rec:,}</div><div class="sl">{_safe(t("rpt.records_total"))}</div></div>
-  <div class="sc"><div class="sv">{len(results)}</div><div class="sl">{_safe(t("rpt.modules_total"))}</div></div>
-</div>
+    # ── Cover ─────────────────────────────────────────────────────────────────
+    tool_logo = data_uri(_report_asset("forenziq_256.png"), 128) \
+        if cfg.get("report_show_tool_logo", True) else ""
+    company_logo = ""
+    if cfg.get("report_show_company_logo", True):
+        company_logo = data_uri(cfg.get("report_company_logo", "")
+                                or _report_asset("company_logo.png"), 360)
 
-<div class="dev-card">
-  <h2>{_safe(t("rpt.device_info"))}</h2>
-  <div class="dev-grid">
-{device_fields_html}  </div>
-</div>
+    def kv_block(title, rows):
+        trs = "".join(
+            f'<tr><th>{esc(lbl)}</th><td>{esc(val) if val not in ("", None) else esc(no_case)}</td></tr>'
+            for lbl, val in rows)
+        return (f'<div class="cblock"><div class="cblock-h">{esc(title)}</div>'
+                f'<table class="kv">{trs}</table></div>')
 
-<div id="modules"></div>
+    cover = ['<section class="cover">',
+             '<div class="brand-row"><div class="brand">']
+    if tool_logo:
+        cover.append(f'<img class="tool-logo" src="{tool_logo}" alt="ForenziQ">')
+    cover.append('<div><div class="brand-name">ForenziQ <span>Toolkit</span></div>'
+                 f'<div class="brand-sub">v{esc(__version__)}</div></div></div>')
+    if company_logo:
+        cover.append(f'<img class="company-logo" src="{company_logo}" alt="">')
+    cover.append('</div>')
+    cover.append(f'<h1 class="ctitle">{esc(t("rpt.title_upper"))}</h1>'
+                 f'<div class="csub">{esc(t("rpt.cover_subtitle"))}</div>'
+                 '<div class="accent-bar"></div>')
+    if cfg.get("report_show_case_details", True):
+        cover.append(kv_block(t("rpt.case_details"), [
+            (t("ev.f_case"), ci["case_no"]), (t("ev.f_evidence_id"), ci["evidence"]),
+            (t("ev.f_examiner"), ci["examiner"]), (t("ev.f_org"), ci["org"]),
+            (t("ev.f_note"), ci["note"]),
+        ]))
+    cover.append(kv_block(t("rpt.device_summary"), [
+        (t("rpt.f_manufacturer"), manufacturer), ("Model", model),
+        (t("rpt.f_android"), android), (t("rpt.f_serial"), serial), ("IMEI", imei),
+    ]))
+    cover.append(f'<div class="muted">{esc(t("rpt.generated").format(ts=timestamp))}</div>')
+    cover.append('</section>')
 
-<footer>
-  {_safe(t("rpt.footer"))}<br>
-  {_safe(t("rpt.generated").format(ts=timestamp))}
-</footer>
+    # ── Device information ────────────────────────────────────────────────────
+    def stat(num, label, cls):
+        return f'<div class="stat {cls}"><div class="sn">{esc(num)}</div><div class="sl">{esc(label)}</div></div>'
 
-</div><!-- .wrap -->
+    dev_fields = [
+        (t("rpt.f_manufacturer"), manufacturer), ("Model", model),
+        (t("rpt.f_android"), android), ("SDK", device_info.get("sdk", "N/A")),
+        (t("rpt.f_serial"), serial), ("IMEI", imei),
+        (t("rpt.f_patch"), device_info.get("security_patch", "N/A")),
+        (t("rpt.f_battery"), device_info.get("battery", "N/A")),
+        ("Brand", device_info.get("brand", "N/A")),
+        ("Build ID", device_info.get("build", "N/A")),
+    ]
+    dev_rows = ""
+    for i in range(0, len(dev_fields), 2):
+        l = dev_fields[i]
+        r2 = dev_fields[i + 1] if i + 1 < len(dev_fields) else ("", "")
+        dev_rows += (f"<tr><th>{esc(l[0])}</th><td>{esc(l[1])}</td>"
+                     f"<th>{esc(r2[0])}</th><td>{esc(r2[1])}</td></tr>")
 
-<script>
-const MODULES = {js_data};
-const PAGE_SIZE = 50;
-const TR = {js_tr};
+    device_sec = (
+        f'<section id="sec-device"><h2>{esc(t("rpt.device_info"))}</h2>'
+        '<div class="stats">'
+        + stat(len(results), t("rpt.modules_total"), "blue")
+        + stat(ok_count, t("rpt.ok"), "green")
+        + stat(fail_count, t("rpt.failed"), "red")
+        + stat(f"{total_rec:,}", t("rpt.records_total"), "blue")
+        + f'</div><table class="dev">{dev_rows}</table></section>')
 
-const ICONS = {{
-  device_info:"📋",contacts:"👥",sms:"💬",call_logs:"📞",apps:"📦",
-  media:"🖼",documents:"📄",wifi:"📶",accounts:"👤",browser:"🌐",
-  user_data_tree:"🗂",file_analysis:"🔍",file_hashes:"#️",deleted_data:"🗑",
-  adb_backup:"💾",root_backup:"🔓",app_providers:"🔗",usage_stats:"📊",termux_agent:"🤖"
-}};
+    # ── Extraction summary ────────────────────────────────────────────────────
+    sum_rows = ""
+    for i, r in enumerate(results):
+        name = (f'<a href="#mod-{i}">{esc(r.label)}</a>' if r.success and r.data
+                else esc(r.label))
+        status = ('<span class="ok">OK</span>' if r.success
+                  else f'<span class="err">{esc(t("rpt.status_err"))}</span>')
+        sum_rows += (f"<tr><td>{name}</td><td>{status}</td>"
+                     f"<td class='num'>{f'{r.count:,}' if r.success else ''}</td>"
+                     f"<td>{'' if r.success else esc(r.error[:200])}</td></tr>")
+    summary_sec = (
+        f'<section id="sec-summary"><h2>{esc(t("rpt.summary"))}</h2>'
+        '<table class="grid"><thead><tr>'
+        f'<th>{esc(t("rpt.col_module"))}</th><th>{esc(t("rpt.col_status"))}</th>'
+        f'<th>{esc(t("rpt.col_records"))}</th><th>{esc(t("rpt.col_note"))}</th>'
+        f'</tr></thead><tbody>{sum_rows}</tbody></table></section>')
 
-const state = {{}};   // keyed by module index: {{ page, filter, sortCol, sortDir }}
+    # ── Extracted data (tables as JSON for the JS engine, KV and galleries as HTML) ──
+    shown_photos: set = set()
+    js_tables = {}
+    mod_html = []
+    toc_mods = []
+    data_results = [(i, r) for i, r in enumerate(results) if r.success and r.data]
 
-function esc(s) {{
-  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-}}
+    def gallery(photos) -> str:
+        total = len(photos)
+        if not total:
+            return ""
+        figs = []
+        for p, name in photos[:MAX_THUMBS]:
+            im = _thumb_image(p, 360)
+            rel = os.path.relpath(p, output_dir) if os.path.splitdrive(p)[0].lower() == \
+                os.path.splitdrive(os.path.abspath(output_dir))[0].lower() else p
+            href = esc(rel.replace(os.sep, "/"))
+            if im is not None:
+                buf = io.BytesIO()
+                im.save(buf, "JPEG", quality=70)
+                src = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+                pic = f'<img src="{src}" alt="{esc(name)}" loading="lazy">'
+            else:
+                pic = f'<div class="nopv">{esc(t("rpt.no_preview"))}</div>'
+            figs.append(f'<figure><a href="{href}" target="_blank" title="{esc(name)}">{pic}</a>'
+                        f'<figcaption>{esc(name)}</figcaption></figure>')
+        out = (f'<h4>{esc(t("rpt.gallery").format(n=total))}</h4>'
+               f'<div class="gallery">{"".join(figs)}</div>')
+        if total > MAX_THUMBS:
+            out += (f'<p class="muted">{esc(t("rpt.gallery_truncated").format(shown=MAX_THUMBS, total=total))}</p>')
+        return out
 
-function highlight(s, q) {{
-  if (!q) return esc(s);
-  const re = new RegExp('(' + q.replace(/[.*+?^${{}}()|[\\]\\\\]/g,'\\\\$&') + ')', 'gi');
-  return esc(s).replace(re, '<mark>$1</mark>');
-}}
+    for i, r in data_results:
+        toc_mods.append(f'<li><a href="#mod-{i}">{esc(r.label)}</a></li>')
+        body = ""
+        if isinstance(r.data, list) and r.data and isinstance(r.data[0], dict):
+            keys = [k for k in r.data[0].keys() if not any(x in k.lower() for x in ("raw", "blob"))] \
+                or list(r.data[0].keys())
+            js_tables[i] = {
+                "columns": [field_label(k) for k in keys],
+                "rows": [[str(rec.get(k, "")) if isinstance(rec, dict) else "" for k in keys]
+                         for rec in r.data],
+            }
+            body = f'<div class="dtable" data-mod="{i}"></div>'
+        elif isinstance(r.data, list):
+            js_tables[i] = {"columns": [t("res.value_col")],
+                            "rows": [[str(v)] for v in r.data]}
+            body = f'<div class="dtable" data-mod="{i}"></div>'
+        elif isinstance(r.data, dict):
+            trs = "".join(f"<tr><th>{esc(field_label(k))}</th><td>{esc(str(v)[:2000])}</td></tr>"
+                          for k, v in r.data.items())
+            body = f'<table class="kv">{trs}</table>'
+        body += gallery(_collect_photos(r, shown_photos))
+        mod_html.append(f'<section class="module" id="mod-{i}"><h3>{esc(r.label)}'
+                        f'<span class="cnt">{r.count:,} {esc(t("rpt.js_records"))}</span></h3>'
+                        f'{body}</section>')
 
-function getState(i) {{
-  if (!state[i]) state[i] = {{ page: 0, filter: "", sortCol: -1, sortDir: 1 }};
-  return state[i];
-}}
+    data_sec = ""
+    if data_results:
+        data_sec = (f'<section id="sec-data" class="pb"><h2>{esc(t("rpt.sec_data"))}</h2>'
+                    + "".join(mod_html) + "</section>")
 
-// Inicializuje strukturu modulu jednou (search box, thead, kv) – nesmí se volat opakovaně
-function initModule(i) {{
-  const m = MODULES[i];
-  const bodyEl = document.getElementById('mb-' + i);
-  if (!bodyEl) return;
+    # ── Table of contents ─────────────────────────────────────────────────────
+    toc = (f'<nav class="toc pb"><h2>{esc(t("rpt.toc"))}</h2><ol>'
+           f'<li><a href="#sec-device">{esc(t("rpt.device_info"))}</a></li>'
+           f'<li><a href="#sec-summary">{esc(t("rpt.summary"))}</a></li>')
+    if data_results:
+        toc += (f'<li><a href="#sec-data">{esc(t("rpt.sec_data"))}</a>'
+                f'<ol>{"".join(toc_mods)}</ol></li>')
+    toc += "</ol></nav>"
 
-  if (m.type === 'table') {{
-    // Sestavíme thead HTML
-    let theadHtml = '';
-    m.columns.forEach((col, ci) => {{
-      theadHtml += `<th id="th-${{i}}-${{ci}}" onclick="sortTable(${{i}},${{ci}})">${{esc(col)}}<span class="sort-arrow"></span></th>`;
-    }});
-    bodyEl.innerHTML = `
-      <div class="tbl-toolbar">
-        <input class="search-box" id="search-${{i}}" placeholder="${{esc(TR.search)}}"
-               oninput="filterTable(${{i}},this.value)">
-        <span class="page-info" id="pinfo-${{i}}"></span>
-        <div class="pager" id="pager-${{i}}"></div>
-      </div>
-      <div class="tbl-wrap">
-        <table class="dt">
-          <thead><tr id="thead-${{i}}">${{theadHtml}}</tr></thead>
-          <tbody id="tbody-${{i}}"></tbody>
-        </table>
-      </div>`;
-    renderTable(i);
+    js_data = json.dumps(js_tables, ensure_ascii=False).replace("</", "<\\/")
+    js_tr = json.dumps({
+        "search": t("rpt.js_search"), "no_data": t("rpt.js_no_data"),
+        "shown": t("rpt.js_shown"), "prev": t("rpt.js_prev"), "next": t("rpt.js_next"),
+    }, ensure_ascii=False).replace("</", "<\\/")
 
-  }} else if (m.type === 'kv') {{
-    let html = '<div class="tbl-wrap"><table class="kv">';
-    for (const [k, v] of Object.entries(m.kv))
-      html += `<tr><td>${{esc(k)}}</td><td>${{esc(v)}}</td></tr>`;
-    html += '</table></div>';
-    bodyEl.innerHTML = html;
+    footer_left = f"ForenziQ Toolkit v{__version__}  ·  {timestamp}"
 
-  }} else {{
-    const msg = m.success ? esc(TR.no_data) : `${{esc(TR.error)}}: ${{esc(m.error)}}`;
-    bodyEl.innerHTML = `<div class="no-data">${{msg}}</div>`;
-  }}
-}}
+    css = """
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,'Segoe UI',sans-serif;background:#e9edf3;color:#1a2233;font-size:13px;line-height:1.45}
+a{color:#1f5fb0;text-decoration:none}a:hover{text-decoration:underline}
+.topbar{position:sticky;top:0;z-index:10;background:#0d2149;color:#cdd8ea;font-size:12px;
+  display:flex;align-items:center;gap:16px;padding:8px 24px}
+.topbar .hl{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topbar button{background:#00a3cc;border:0;color:#fff;font-weight:700;border-radius:4px;padding:5px 12px;cursor:pointer}
+.page{max-width:1120px;margin:24px auto;background:#fff;box-shadow:0 2px 14px rgba(13,33,73,.12);padding:44px 52px}
+section,nav{margin-bottom:34px}
+h2{font-size:19px;color:#0d2149;margin-bottom:12px}
+h3{font-size:15px;color:#1f5fb0;margin:22px 0 8px;display:flex;align-items:baseline;gap:10px}
+h3 .cnt{font-size:11px;color:#5a6b82;font-weight:400}
+h4{font-size:12px;color:#0d2149;margin:14px 0 6px}
+.muted{color:#5a6b82;font-size:11px;margin-top:6px}
+/* cover */
+.cover{min-height:900px}
+.brand-row{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #cdd8ea;padding-bottom:12px}
+.brand{display:flex;align-items:center;gap:10px}
+.tool-logo{width:52px;height:52px}
+.company-logo{max-width:200px;max-height:62px}
+.brand-name{font-size:20px;font-weight:700;color:#0d2149}.brand-name span{color:#00a3cc}
+.brand-sub{font-size:10px;color:#5a6b82}
+.ctitle{font-size:40px;color:#0d2149;margin-top:120px;letter-spacing:.5px}
+.csub{font-size:17px;color:#1f5fb0;margin-top:4px}
+.accent-bar{width:150px;height:4px;background:#00a3cc;margin:14px 0 46px}
+.cblock{margin-bottom:24px}
+.cblock-h{background:#0d2149;color:#fff;font-weight:700;padding:6px 12px}
+/* tables */
+table{border-collapse:collapse;width:100%}
+table.kv th,table.dev th{background:#e9eefa;color:#0d2149;text-align:left;width:220px;font-weight:700}
+table.dev th{background:#2a6fc4;color:#fff;width:160px}
+table.kv th,table.kv td,table.dev th,table.dev td,table.grid th,table.grid td{border:1px solid #cdd8ea;padding:6px 10px;vertical-align:top;overflow-wrap:anywhere}
+table.kv tr:nth-child(even) td,table.dev tr:nth-child(odd) td{background:#eef3fb}
+table.grid thead th{background:#2a6fc4;color:#fff;text-align:left;white-space:nowrap}
+table.grid tbody tr:nth-child(even) td{background:#eef3fb}
+table.grid td.num{text-align:right}
+.ok{color:#1b7a3d;font-weight:700}.err{color:#b3261e;font-weight:700}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);margin-bottom:18px;border:1px solid #cdd8ea}
+.stat{text-align:center;padding:14px 6px;border-right:1px solid #cdd8ea;background:#e9eefa}
+.stat:last-child{border-right:0}.stat.green{background:#e6f4ea}.stat.red{background:#fdecea}
+.stat .sn{font-size:26px;font-weight:700;color:#1f5fb0}.stat.green .sn{color:#1b7a3d}.stat.red .sn{color:#b3261e}
+.stat .sl{font-size:11px;color:#5a6b82}
+/* toc */
+.toc ol{list-style:none;counter-reset:a}
+.toc>ol>li{font-weight:700;padding:5px 0;border-bottom:1px dotted #cdd8ea}
+.toc ol ol{font-weight:400;margin:4px 0 0 22px}
+.toc ol ol li{padding:2px 0}
+/* interactive tables */
+.tbar{display:flex;align-items:center;gap:10px;margin:4px 0 6px;flex-wrap:wrap}
+.tbar input{flex:0 1 300px;border:1px solid #cdd8ea;border-radius:4px;padding:5px 9px;font-size:12px}
+.tbar input:focus{outline:2px solid #00a3cc;border-color:#00a3cc}
+.tbar .pinfo{margin-left:auto;color:#5a6b82;font-size:11px}
+.pager button{border:1px solid #cdd8ea;background:#fff;color:#1f5fb0;border-radius:4px;padding:3px 8px;margin-left:2px;cursor:pointer;font-size:11px}
+.pager button.active{background:#1f5fb0;color:#fff;border-color:#1f5fb0}
+.pager button:disabled{opacity:.4;cursor:default}
+.twrap{overflow-x:auto}
+table.grid th.sortable{cursor:pointer;user-select:none}
+table.grid th.asc::after{content:' ▲'}table.grid th.desc::after{content:' ▼'}
+mark{background:#fff1a8;padding:0 1px}
+/* gallery */
+.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+figure{border:1px solid #cdd8ea;padding:6px;text-align:center;display:flex;flex-direction:column;justify-content:flex-end}
+figure img{max-width:100%;max-height:130px;object-fit:contain;display:block;margin:0 auto}
+figcaption{font-size:10px;color:#5a6b82;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nopv{font-size:10px;color:#5a6b82;padding:40px 0}
+footer{display:flex;justify-content:space-between;color:#5a6b82;font-size:11px;border-top:1px solid #cdd8ea;padding-top:10px;margin-top:30px}
+@media print{
+  body{background:#fff}.topbar,.tbar{display:none}
+  .page{box-shadow:none;margin:0;max-width:none;padding:0}
+  .cover{min-height:0;page-break-after:always}.pb{page-break-before:always}
+  h2,h3,h4{page-break-after:avoid}figure,tr{page-break-inside:avoid}
+  thead{display:table-header-group}a{color:inherit}
+}
+"""
 
-// Aktualizuje pouze tbody + paginaci – search box se nedotýká
-function renderTable(i) {{
-  const m = MODULES[i];
-  const s = getState(i);
+    js = """
+const TABLES = %s, TR = %s, PAGE = 50;
+const st = {};
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function hl(s,q){if(!q)return esc(s);const re=new RegExp('('+q.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\\\$&')+')','gi');return esc(s).replace(re,'<mark>$1</mark>');}
+function init(el){
+  const i=el.dataset.mod, m=TABLES[i]; st[i]={page:0,q:'',col:-1,dir:1,all:false};
+  const th=m.columns.map((c,ci)=>`<th class="sortable" id="th-${i}-${ci}" onclick="sortT(${i},${ci})">${esc(c)}</th>`).join('');
+  el.innerHTML=`<div class="tbar"><input placeholder="${esc(TR.search)}" oninput="filt(${i},this.value)">
+    <span class="pinfo" id="pi-${i}"></span><span class="pager" id="pg-${i}"></span></div>
+    <div class="twrap"><table class="grid"><thead><tr>${th}</tr></thead><tbody id="tb-${i}"></tbody></table></div>`;
+  render(i);
+}
+function render(i){
+  const m=TABLES[i], s=st[i]; let rows=m.rows;
+  if(s.q){const q=s.q.toLowerCase(); rows=rows.filter(r=>r.some(c=>c.toLowerCase().includes(q)));}
+  if(s.col>=0){rows=[...rows].sort((a,b)=>{const x=a[s.col],y=b[s.col];const nx=parseFloat(x),ny=parseFloat(y);
+    if(!isNaN(nx)&&!isNaN(ny)&&String(nx)===x.trim()&&String(ny)===y.trim())return (nx-ny)*s.dir;
+    return x.localeCompare(y)*s.dir;});}
+  const total=rows.length, size=s.all?Math.max(total,1):PAGE, pages=Math.max(1,Math.ceil(total/size));
+  s.page=Math.min(s.page,pages-1);
+  const slice=rows.slice(s.page*size,(s.page+1)*size);
+  m.columns.forEach((_,ci)=>{const h=document.getElementById(`th-${i}-${ci}`);h.classList.remove('asc','desc');if(s.col===ci)h.classList.add(s.dir===1?'asc':'desc');});
+  document.getElementById('tb-'+i).innerHTML = slice.length
+    ? slice.map(r=>'<tr>'+r.map(c=>`<td>${hl(c,s.q)}</td>`).join('')+'</tr>').join('')
+    : `<tr><td colspan="${m.columns.length}">${esc(TR.no_data)}</td></tr>`;
+  const from=total?s.page*size+1:0, to=Math.min((s.page+1)*size,total);
+  document.getElementById('pi-'+i).textContent=TR.shown.replace('{from}',from).replace('{to}',to).replace('{total}',total);
+  let p=`<button onclick="go(${i},${s.page-1})" ${s.page===0?'disabled':''}>${esc(TR.prev)}</button>`;
+  const lo=Math.max(0,s.page-2), hi=Math.min(pages-1,s.page+2);
+  if(lo>0)p+=`<button onclick="go(${i},0)">1</button>${lo>1?'…':''}`;
+  for(let k=lo;k<=hi;k++)p+=`<button class="${k===s.page?'active':''}" onclick="go(${i},${k})">${k+1}</button>`;
+  if(hi<pages-1)p+=`${hi<pages-2?'…':''}<button onclick="go(${i},${pages-1})">${pages}</button>`;
+  p+=`<button onclick="go(${i},${s.page+1})" ${s.page>=pages-1?'disabled':''}>${esc(TR.next)}</button>`;
+  document.getElementById('pg-'+i).innerHTML=p;
+}
+function go(i,p){st[i].page=p;render(i);}
+function filt(i,v){st[i].q=v;st[i].page=0;render(i);}
+function sortT(i,c){const s=st[i];if(s.col===c)s.dir*=-1;else{s.col=c;s.dir=1;}s.page=0;render(i);}
+document.querySelectorAll('.dtable').forEach(init);
+// Printing / "Save as PDF" from the browser → all rows, not just the current page
+window.addEventListener('beforeprint',()=>{for(const i in st){st[i].all=true;st[i].page=0;render(i);}});
+window.addEventListener('afterprint',()=>{for(const i in st){st[i].all=false;render(i);}});
+""" % (js_data, js_tr)
 
-  let rows = m.rows;
-  if (s.filter) {{
-    const q = s.filter.toLowerCase();
-    rows = rows.filter(r => r.some(c => c.toLowerCase().includes(q)));
-  }}
-  if (s.sortCol >= 0) {{
-    rows = [...rows].sort((a, b) => {{
-      const av = a[s.sortCol], bv = b[s.sortCol];
-      return av < bv ? -s.sortDir : av > bv ? s.sortDir : 0;
-    }});
-  }}
-
-  const total = rows.length;
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  s.page = Math.min(s.page, pages - 1);
-  const slice = rows.slice(s.page * PAGE_SIZE, (s.page + 1) * PAGE_SIZE);
-
-  // Aktualizuj záhlaví sloupců (třída řazení)
-  m.columns.forEach((_, ci) => {{
-    const th = document.getElementById(`th-${{i}}-${{ci}}`);
-    if (!th) return;
-    th.className = s.sortCol===ci ? (s.sortDir===1 ? 'sort-asc' : 'sort-desc') : '';
-  }});
-
-  // Aktualizuj tbody
-  const tbody = document.getElementById('tbody-' + i);
-  if (tbody) {{
-    const q = s.filter;
-    tbody.innerHTML = slice.map(row =>
-      '<tr>' + row.map(c => `<td>${{highlight(c,q)}}</td>`).join('') + '</tr>'
-    ).join('');
-  }}
-
-  // Aktualizuj info + paginaci
-  const pinfo = document.getElementById('pinfo-' + i);
-  if (pinfo) {{
-    const from = total === 0 ? 0 : s.page * PAGE_SIZE + 1;
-    const to   = Math.min((s.page + 1) * PAGE_SIZE, total);
-    pinfo.textContent = TR.shown.replace('{{from}}', from).replace('{{to}}', to).replace('{{total}}', total);
-  }}
-
-  const pagerEl = document.getElementById('pager-' + i);
-  if (pagerEl) {{
-    let p = '';
-    p += `<button onclick="changePage(${{i}},${{s.page-1}})" ${{s.page===0?'disabled':''}}>${{esc(TR.prev)}}</button>`;
-    const lo = Math.max(0, s.page-2), hi = Math.min(pages-1, s.page+2);
-    if (lo>0) {{ p += `<button onclick="changePage(${{i}},0)">1</button>`; if (lo>1) p += '<span style="color:#556;padding:0 4px">…</span>'; }}
-    for (let pg=lo; pg<=hi; pg++)
-      p += `<button class="${{pg===s.page?'active':''}}" onclick="changePage(${{i}},${{pg}})">${{pg+1}}</button>`;
-    if (hi<pages-1) {{ if (hi<pages-2) p += '<span style="color:#556;padding:0 4px">…</span>'; p += `<button onclick="changePage(${{i}},${{pages-1}})">${{pages}}</button>`; }}
-    p += `<button onclick="changePage(${{i}},${{s.page+1}})" ${{s.page>=pages-1?'disabled':''}}>${{esc(TR.next)}}</button>`;
-    pagerEl.innerHTML = p;
-  }}
-}}
-
-function changePage(i, p) {{ getState(i).page = p; renderTable(i); }}
-function filterTable(i, v) {{ const s=getState(i); s.filter=v; s.page=0; renderTable(i); }}
-function sortTable(i, col) {{
-  const s = getState(i);
-  if (s.sortCol === col) s.sortDir *= -1; else {{ s.sortCol=col; s.sortDir=1; }}
-  s.page = 0;
-  renderTable(i);
-}}
-
-function toggleModule(i) {{
-  const body = document.getElementById('mb-' + i);
-  const chev = document.getElementById('chev-' + i);
-  body.classList.toggle('open');
-  chev.style.transform = body.classList.contains('open') ? 'rotate(180deg)' : '';
-  if (body.classList.contains('open') && !body.innerHTML.trim()) initModule(i);
-}}
-
-// Build module list
-(function() {{
-  const container = document.getElementById('modules');
-  MODULES.forEach((m, i) => {{
-    const icon = ICONS[m.key] || '📁';
-    const badge = m.success
-      ? `<span class="mod-badge badge-ok">OK</span><span class="mod-count">${{m.count.toLocaleString()}} ${{esc(TR.records)}}</span>`
-      : `<span class="mod-badge badge-fail">${{esc(TR.status_err)}}</span>`;
-    container.innerHTML += `
-    <div class="mod-card">
-      <div class="mod-hdr" onclick="toggleModule(${{i}})">
-        <div class="mod-hdr-left">
-          <span class="mod-icon">${{icon}}</span>
-          <span class="mod-name">${{esc(m.label)}}</span>
-          ${{badge}}
-        </div>
-        <span class="chevron" id="chev-${{i}}">▼</span>
-      </div>
-      <div class="mod-body" id="mb-${{i}}"></div>
-    </div>`;
-  }});
-  // Otevři první úspěšný modul
-  const first = MODULES.findIndex(m => m.success && m.type !== 'none');
-  if (first >= 0) toggleModule(first);
-
-}})();
-</script>
-</body>
-</html>"""
+    html = (
+        f'<!DOCTYPE html>\n<html lang="{get_lang()}">\n<head>\n<meta charset="UTF-8">\n'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
+        f'<meta name="generator" content="ForenziQ Toolkit v{esc(__version__)}">\n'
+        f'<title>{esc(t("rpt.title"))} — {esc(device_label)}</title>\n'
+        f'<style>{css}</style>\n</head>\n<body>\n'
+        f'<div class="topbar"><span class="hl">{esc(header_text)}</span>'
+        f'<span>ForenziQ Toolkit v{esc(__version__)}</span>'
+        f'<button onclick="window.print()">🖨 {esc(t("rpt.print"))}</button></div>\n'
+        '<div class="page">\n'
+        + "".join(cover) + toc + device_sec + summary_sec + data_sec
+        + f'<footer><span>{esc(footer_left)}</span><span>{esc(header_text)}</span></footer>\n'
+        f'</div>\n<script>{js}</script>\n</body>\n</html>\n'
+    )
 
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(html)
-
     return report_path
+
