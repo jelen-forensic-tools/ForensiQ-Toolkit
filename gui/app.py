@@ -126,14 +126,32 @@ class ForenziQApp(ctk.CTk):
         self.geometry(f"{w}x{h}+{x}+{y}")
         self.minsize(min_w, min_h)
         self.configure(fg_color=BG_DARK)
+        # Start-up diagnostics (~/.forenziq/window_start.log, first ~15 s)
+        from . import window_start as ws
+        self._wlog = ws.StartLog()
+        try:
+            from customtkinter.windows.widgets.scaling import ScalingTracker
+            dpi = ScalingTracker.get_window_dpi_scaling(self)
+        except Exception:
+            dpi = None
+        self._wlog.write(f"ForenziQ {full_version()}  python {sys.version.split()[0]}  "
+                         f"frozen={getattr(sys, 'frozen', False)}")
+        for i, m in enumerate(ws.monitors()):
+            self._wlog.write(f"monitor {i}: rect={m['rect']} work={m['work']} "
+                             f"scaling={m['scaling']} primary={m['primary']}")
+        self._wlog.write(f"tk screen={self.winfo_screenwidth()}x{self.winfo_screenheight()} "
+                         f"res_scale={self._scale} dpi={dpi} total={s} work={work_w}x{work_h} "
+                         f"geometry={w}x{h}+{x}+{y} minsize={min_w}x{min_h} (unscaled)")
         # Start maximized across the whole screen (title bar and window controls
         # remain; the size set above is used as the restored size).
         # Note: on Windows, CTk hides and re-shows the window after start-up (dark
-        # title bar), which overrides a "zoomed" state set too early. On slower PCs
-        # (unpacking the onefile .exe) this takes longer, so maximization is
-        # re-checked repeatedly until the "zoomed" state sticks.
+        # title bar), which overrides a "zoomed" state set too early; on a multi-monitor
+        # desktop with different display scaling CTk may also re-scale the window once it
+        # appears on another monitor. On slower PCs (unpacking the onefile .exe) this
+        # takes longer, so the "zoomed" state is watched for a while and restored.
         self._maximize_checks = 0
         self._maximize_ok = 0
+        self._maximize_misses = 0
         self.after(150, self._maximize)
 
         self.adb = ADBManager()
@@ -203,17 +221,38 @@ class ForenziQApp(ctk.CTk):
         """Maximize the window across the screen (title bar and window controls remain)."""
         if getattr(self, "_closing", False):
             return
+        from . import window_start as ws
         self._maximize_checks += 1
+        action = ""
         try:
-            if self.state() == "zoomed":
+            state = self.state()
+            if state == "zoomed":
                 self._maximize_ok += 1
-            else:
+                self._maximize_misses = 0
+            elif state in ("normal",):
                 self._maximize_ok = 0
-                self.state("zoomed")
-        except Exception:
-            pass
-        # Done once "zoomed" holds for 3 consecutive checks (max. ~8 s)
-        if self._maximize_ok < 3 and self._maximize_checks < 20:
+                self._maximize_misses += 1
+                if self._maximize_misses >= 3:
+                    # Tk's "zoomed" did not stick – maximize through the Win32 API
+                    action = "win32 maximize"
+                    ws.win32_maximize(self)
+                else:
+                    action = "zoom"
+                    self.state("zoomed")
+            mons = ws.monitors()
+            self._wlog.write(f"check {self._maximize_checks}: state={state} {action} "
+                             f"tk={self.winfo_width()}x{self.winfo_height()} "
+                             f"rect={ws.window_rect(self)} monitor={ws.window_monitor(self, mons)}")
+        except Exception as e:
+            self._wlog.write(f"check {self._maximize_checks}: error {e}")
+        # Watch for ~15 s (CTk may re-scale the window on another monitor a few seconds
+        # after start); stop earlier once "zoomed" has held for ~5 s after the first 6 s.
+        done = (self._maximize_checks >= 38
+                or (self._maximize_checks >= 15 and self._maximize_ok >= 12))
+        if done:
+            self._wlog.write(f"done: state={self.state()}")
+            self._wlog.close()
+        else:
             self.after(400, self._maximize)
 
     def _on_close(self):
