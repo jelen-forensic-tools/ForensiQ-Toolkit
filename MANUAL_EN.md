@@ -302,6 +302,31 @@ and when, and the SHA-256 of its source file at tagging time.
 the `_case/` folder and generated reports are analyst work product and are not part of the evidence
 manifest.
 
+### 9.3 ALEAPP / iLEAPP
+
+[ALEAPP](https://github.com/abrignoni/ALEAPP) (Android) and [iLEAPP](https://github.com/abrignoni/iLEAPP)
+(iOS) by Alexis Brignoni are open-source artifact parsers (MIT licence) with hundreds of app parsers.
+ForenziQ does **not** bundle them: download the portable `aleapp.exe` / `ileapp.exe` from their GitHub
+Releases (**Download** button in the panel) or point ForenziQ at `aleapp.py` / `ileapp.py` of a source
+checkout (run with `py` / `python` from PATH, which needs the tool's requirements installed). The path is
+remembered in the settings.
+
+1. Open **ALEAPP / iLEAPP**, pick the tool and its path.
+2. Pick the input: a folder with device files (e.g. `user_data_tree`), an archive `.tar` / `.tar.gz` /
+   `.zip` (e.g. `root_backup.tar.gz` from the root backup) or, for iLEAPP, an iTunes backup folder.
+   Inputs found in the current case are offered as buttons. The input type (`-t`) is detected and can be
+   changed.
+3. Check the case folder (the current results folder by default) and click **Run**.
+
+The tool writes its full report into `<case>/_leapp/ALEAPP_<time>/`. ForenziQ then imports it (from
+LAVA `_lava_artifacts.db`, or `_TSV Exports` for older versions) into `aleapp.json` / `ileapp.json` in the
+case folder – one section per artifact, times in UTC. These records are indexed, so they can be searched,
+tagged and put into the tagged report like any other data. **Load existing report…** imports a report
+created earlier outside ForenziQ. ALEAPP/iLEAPP exit with code 0 even when processing fails, so ForenziQ
+reads the result from their log. For an encrypted iTunes backup iLEAPP needs the backup password; it
+writes the password into its log, so ForenziQ masks it in the report when the run ends. The `_leapp/`
+folder and the imported JSON are analyst work product and are not part of the evidence manifest.
+
 ---
 
 ## 10. Backup Import (Android vendor backups)

@@ -304,6 +304,30 @@ kdo a kdy ho označil a SHA-256 zdrojového souboru v době označení.
 `_case/audit.jsonl` (čas, vyšetřovatel z Nastavení, akce). Štítky jsou v `_case/tags.sqlite`; složka
 `_case/` i vygenerované reporty jsou pracovní výstup analytika a nejsou součástí manifestu důkazů.
 
+### 9.3 ALEAPP / iLEAPP
+
+[ALEAPP](https://github.com/abrignoni/ALEAPP) (Android) a [iLEAPP](https://github.com/abrignoni/iLEAPP)
+(iOS) od Alexise Brignoniho jsou open-source parsery artefaktů (licence MIT) se stovkami parserů aplikací.
+ForenziQ je **nepřibaluje**: stáhněte portable `aleapp.exe` / `ileapp.exe` z jejich GitHub Releases
+(tlačítko **Stáhnout** v panelu), nebo ForenziQ nasměrujte na `aleapp.py` / `ileapp.py` ze zdrojáků
+(spouští se přes `py` / `python` z PATH, které musí mít nainstalované závislosti nástroje). Cesta se
+uloží do nastavení.
+
+1. Otevřete **ALEAPP / iLEAPP**, zvolte nástroj a cestu k němu.
+2. Vyberte vstup: složku se soubory zařízení (např. `user_data_tree`), archiv `.tar` / `.tar.gz` / `.zip`
+   (např. `root_backup.tar.gz` z root zálohy) nebo u iLEAPP složku iTunes zálohy. Vstupy nalezené
+   v aktuálním případu se nabídnou jako tlačítka. Typ vstupu (`-t`) se rozpozná sám a lze ho změnit.
+3. Zkontrolujte složku případu (výchozí je aktuální složka výsledků) a klikněte na **Spustit**.
+
+Nástroj zapíše celý svůj report do `<případ>/_leapp/ALEAPP_<čas>/`. ForenziQ ho pak naimportuje
+(z LAVA `_lava_artifacts.db`, u starších verzí z `_TSV Exports`) do `aleapp.json` / `ileapp.json` ve složce
+případu – jedna sekce na artefakt, časy v UTC. Záznamy se zaindexují, takže je lze prohledávat, označovat
+štítky a dát do reportu označených položek jako ostatní data. **Načíst hotový report…** naimportuje report
+vytvořený dříve mimo ForenziQ. ALEAPP/iLEAPP končí s kódem 0, i když zpracování selže, proto ForenziQ
+čte výsledek z jejich logu. U šifrované iTunes zálohy potřebuje iLEAPP heslo zálohy; zapisuje ho do svého
+logu, a proto ho ForenziQ po dokončení v reportu zamaskuje. Složka `_leapp/` a importovaný JSON jsou
+pracovní výstup analytika a nejsou součástí manifestu důkazů.
+
 ---
 
 ## 10. Import zálohy (zálohy výrobců Androidu)

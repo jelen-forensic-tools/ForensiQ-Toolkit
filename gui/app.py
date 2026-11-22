@@ -279,6 +279,7 @@ class ForenziQApp(ctk.CTk):
             ("extraction", "nav.extraction"),
             ("results",    "nav.results"),
             ("search",     "nav.search"),
+            ("leapp",      "nav.leapp"),
             ("backup",     "nav.backup"),
             ("ios",         "nav.ios"),
             ("ios_backup",  "nav.ios_backup"),
@@ -297,6 +298,7 @@ class ForenziQApp(ctk.CTk):
             "extraction": "extraction",
             "results":    "results",
             "search":     "search",
+            "leapp":      "leapp",
             "comparison": "comparison",
             "timeline":   "timeline",
             "map":        "map",
@@ -433,6 +435,13 @@ class ForenziQApp(ctk.CTk):
             self._search_panel = p
             if self._search_dir:
                 p.set_dir(self._search_dir)
+        elif view == "leapp":
+            from .leapp_panel import LeappPanel
+            p = LeappPanel(self._content, accent=ACCENT,
+                           on_imported=self._set_search_dir,
+                           on_open_search=lambda: self._navigate("search"))
+            if self._search_dir:
+                p.set_case(self._search_dir)
         elif view == "comparison":
             from .comparison import ComparisonPanel
             p = ComparisonPanel(self._content, accent=ACCENT)
@@ -497,6 +506,7 @@ class ForenziQApp(ctk.CTk):
         "extraction": "topbar.extraction",
         "results":    "topbar.results",
         "search":     "topbar.search",
+        "leapp":      "topbar.leapp",
         "comparison": "topbar.comparison",
         "timeline":   "topbar.timeline",
         "map":        "topbar.map",
@@ -622,6 +632,7 @@ class ForenziQApp(ctk.CTk):
             "extraction": "nav.extraction",
             "results":    "nav.results",
             "search":     "nav.search",
+            "leapp":      "nav.leapp",
             "comparison": "nav.comparison",
             "timeline":   "nav.timeline",
             "map":        "nav.map",
@@ -843,6 +854,9 @@ class ForenziQApp(ctk.CTk):
         panel = self._view_panels.get("search")
         if panel is not None:
             panel.set_dir(folder)
+        lp = self._view_panels.get("leapp")
+        if lp is not None and not lp._case_dir:
+            lp.set_case(folder)
 
     def _on_adump_finished(self, results, device_info: dict, target: str):
         """Android physical dump → same flow as a live extraction (Results, reports, Timeline, Map)."""

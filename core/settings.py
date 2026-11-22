@@ -21,6 +21,9 @@ _DEFAULTS: dict = {
     "report_show_company_logo":  True,    # show the company logo on the cover page
     "report_show_case_details":  True,    # show the "Case details" block
     "report_show_tool_logo":     True,    # show the ForenziQ logo on the cover page
+    # External analysis tools (not bundled)
+    "aleapp_path":               "",      # aleapp.exe or aleapp.py
+    "ileapp_path":               "",      # ileapp.exe or ileapp.py
 }
 
 

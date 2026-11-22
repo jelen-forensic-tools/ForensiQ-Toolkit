@@ -56,6 +56,10 @@ _NUMBER_KEYS = re.compile(
 _DATE_KEYS = ("date", "time", "timestamp", "datetime", "date_taken",
               "date_sent", "date_received", "start", "created", "modified",
               "last_time_used", "last_visit")
+# Fallback for other naming (e.g. ALEAPP/iLEAPP headers "Message Timestamp", "Last Visit Time"):
+# a key containing one of these words, used only when no key above matched.
+_DATE_WORDS = {"date", "time", "timestamp", "datetime"}
+_KEY_SPLIT = re.compile(r"[^0-9a-z]+")
 
 _DATE_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y:%m:%d %H:%M:%S",
                  "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d",
@@ -433,19 +437,26 @@ def analyze_record(rec: dict, kinds: Optional[set] = None
     parts: list[str] = []
     numbers: dict[str, str] = {}
     dt: Optional[str] = None
-    date_rank = len(_DATE_KEYS)
+    date_rank = len(_DATE_KEYS) + 1
     for k, v in _flatten(rec):
         if isinstance(v, bool):
             continue
         sv = str(v)
         kl = k.lower()
+        kn = _KEY_SPLIT.sub("_", kl).strip("_")      # "Date Sent" → "date_sent"
         if kl == "path" or kl.endswith("_path"):
             parts.append(sv.replace("/", " ").replace("\\", " "))
         parts.append(sv)
-        if kl in _DATE_KEYS and _DATE_KEYS.index(kl) < date_rank:
+        if kn in _DATE_KEYS:
+            rank = _DATE_KEYS.index(kn)
+        elif _DATE_WORDS.intersection(kn.split("_")):
+            rank = len(_DATE_KEYS)
+        else:
+            rank = None
+        if rank is not None and rank < date_rank:
             p = parse_dt(v)
             if p:
-                dt, date_rank = p, _DATE_KEYS.index(kl)
+                dt, date_rank = p, rank
         if _NUMBER_KEYS.search(kl) and isinstance(v, (str, int)) and \
                 _looks_like_number(sv):
             n = norm_number(sv)

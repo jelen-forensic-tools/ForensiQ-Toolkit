@@ -25,10 +25,11 @@ MANIFEST_TXT = "evidence_manifest.txt"
 # Outputs of this step itself and generated reports (work product that is re-created
 # whenever a report is exported, e.g. with the case details) – never hashed into the manifest.
 _SELF_FILES = {MANIFEST_NAME, MANIFEST_TXT, "report.html", "report.pdf", "report.xlsx",
-               "report_tagged.html", "report_tagged.pdf"}
-# Analyst work product (search index, tags, notes) – created after the
+               "report_tagged.html", "report_tagged.pdf",
+               "aleapp.json", "ileapp.json"}
+# Analyst work product (search index, tags, notes, ALEAPP/iLEAPP runs) – created after the
 # acquisition and changed during analysis, so it does not belong in the evidence manifest.
-_SELF_DIRS = ("_case",)
+_SELF_DIRS = ("_case", "_leapp")
 
 _CHUNK = 1 << 20  # 1 MiB
 

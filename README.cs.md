@@ -30,6 +30,8 @@
   automatické rozpoznání e-mailů, URL, IBAN, kryptoadres, IMEI, platebních karet a IP adres
 - **Štítky a seznamy klíčových slov** – označování záznamů (Důkaz / Podezřelé / vlastní štítky, poznámky),
   opakovaně použitelné seznamy klíčových slov, **report jen z označených položek** (PDF + HTML), audit
+- **Integrace ALEAPP / iLEAPP** – spuštění externích parserů (nejsou přibalené) nad extrakcí a import
+  jejich artefaktů do případu pro hledání, štítky a reporty
 - **Časová osa** zpráv, hovorů, historie prohlížeče a fotek
 - **Mapa GPS** míst pořízení fotek
 - **Porovnání záloh** – nové / odstraněné / změněné záznamy mezi dvěma extrakcemi
