@@ -95,7 +95,7 @@ class LeappPanel(ctk.CTkFrame):
         prow = ctk.CTkFrame(right, fg_color="transparent")
         prow.grid(row=r, column=0, sticky="ew", padx=P)
         prow.grid_columnconfigure(0, weight=1)
-        self._path_entry = ctk.CTkEntry(prow, height=th.BTN_H_SMALL, fg_color=th.BG_INPUT,
+        self._path_entry = ctk.CTkEntry(prow, height=th.BTN_H_SMALL, fg_color=th.BG_INPUT, text_color=th.TEXT,
                                         border_color=th.BORDER, font=th.f_small())
         self._path_entry.grid(row=0, column=0, sticky="ew")
         self._path_entry.bind("<FocusOut>", lambda _e: self._save_path())
@@ -117,7 +117,7 @@ class LeappPanel(ctk.CTkFrame):
         self._type_menu.grid(row=r, column=0, sticky="w", padx=P)
         r += 1
 
-        self._pw_frame = ctk.CTkFrame(right, fg_color="transparent")
+        self._pw_frame = ctk.CTkFrame(right, fg_color="transparent", width=1, height=1)
         self._pw_frame.grid(row=r, column=0, sticky="ew", padx=P, pady=(10, 0))
         self._pw_frame.grid_columnconfigure(0, weight=1)
         self._pw_entry = ctk.CTkEntry(self._pw_frame, height=th.BTN_H_SMALL, show="•",
@@ -140,7 +140,8 @@ class LeappPanel(ctk.CTkFrame):
         th.small_button(crow, t("leapp.change"), self._pick_case, width=80).grid(row=0, column=1)
         r += 1
 
-        self._suggest_frame = ctk.CTkFrame(right, fg_color="transparent")
+        # width/height=1: an empty CTkFrame would otherwise take 200 px and push the summary out
+        self._suggest_frame = ctk.CTkFrame(right, fg_color="transparent", width=1, height=1)
         self._suggest_frame.grid(row=r, column=0, sticky="ew", padx=P, pady=(8, 0))
         r += 1
 
@@ -156,7 +157,7 @@ class LeappPanel(ctk.CTkFrame):
         self._sum_lbl = th.hint_label(right, t("leapp.nothing"), ref=right, offset=2 * P)
         self._sum_lbl.grid(row=r, column=0, sticky="ew", padx=P, pady=(6, 4))
         r += 1
-        self._arts = ctk.CTkScrollableFrame(right, fg_color=th.BG_LOG, height=120)
+        self._arts = ctk.CTkScrollableFrame(right, fg_color=th.BG_LOG, height=60)
         self._arts.grid(row=99, column=0, sticky="nsew", padx=P, pady=(0, 6))
         self._arts.grid_columnconfigure(0, weight=1)
         brow = ctk.CTkFrame(right, fg_color="transparent")
@@ -380,7 +381,7 @@ class LeappPanel(ctk.CTkFrame):
             tool=summary.get("tool", ""), n=summary.get("records", 0),
             a=len(summary.get("artifacts", [])), file=summary.get("file", "")))
         for i, (name, n) in enumerate(sorted(summary.get("artifacts", []))):
-            ctk.CTkLabel(self._arts, text=name, font=th.f_small(), anchor="w").grid(
+            ctk.CTkLabel(self._arts, text=name, font=th.f_small(), text_color=th.TEXT, anchor="w").grid(
                 row=i, column=0, sticky="ew", padx=(6, 4))
             ctk.CTkLabel(self._arts, text=str(n), font=th.f_small(),
                          text_color=th.TEXT_MUTED).grid(row=i, column=1, sticky="e", padx=6)
