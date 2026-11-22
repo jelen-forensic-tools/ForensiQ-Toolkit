@@ -28,6 +28,8 @@
 - **Search across all sources** – accent- and language-independent full-text search (incl. Chinese,
   Japanese, Korean, Thai), phone numbers matched in any national/international format, automatic
   detection of e-mails, URLs, IBANs, crypto addresses, IMEIs, payment cards and IP addresses
+- **Tags and keyword lists** – tag records (Evidence / Suspicious / own tags, notes), run reusable
+  keyword lists, **report of tagged items only** (PDF + HTML), audit trail of every tagging action
 - **Timeline** of messages, calls, browser history and photos
 - **GPS map** of photo locations
 - **Backup comparison** – new / removed / changed records between two extractions

@@ -4,8 +4,11 @@ SearchPanel – search across all data of one extraction.
 
 Top: output folder selection + index status (indexing runs in the background).
 Below: search bar (text / number / phrase, source, date from–to).
-Left: results (source, time, snippet with the match) – double-click opens the detail.
-Right: overview of entities found (numbers, e-mails, IBANs, …) – click to filter.
+Left: results (source, time, tags, snippet with the match) – double-click opens the detail.
+Right: overview of entities found (numbers, e-mails, IBANs, …) – click to filter;
+after a keyword list run it shows the hits per term instead.
+Tag bar: tag selected / all results, remove a tag, add a note, show tagged items,
+keyword lists and the report of tagged items (core/case_tags.py).
 
 All database work runs in threads; results return to the UI via after().
 """
@@ -16,8 +19,10 @@ from tkinter import ttk, filedialog
 import customtkinter as ctk
 
 from core import search_index as si
+from core import case_tags as ctags
 from core.i18n import t, has
 from . import theme as th
+from .tagging import KeywordListDialog, ask_text, confirm
 
 PAGE = 300                      # records per results page
 OVERVIEW_LIMIT = 500            # max. items in the entity overview
@@ -111,6 +116,11 @@ class SearchPanel(ctk.CTkFrame):
         self._overview_rows: list[dict] = []
         self._summary: dict = {}
         self._last_stats = None                 # last indexing result
+        self._row_tags: dict[str, list] = {}    # row_key → tag names (displayed rows)
+        self._tag_names: list[str] = []
+        self._kw = None                         # (list name, per_term, rows) after a keyword run
+        self._tag_colors = ["#e53935", "#fb8c00", "#1e88e5", "#43a047", "#8e24aa",
+                            "#00acc1", "#6d4c41", "#d81b60"]
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
@@ -173,7 +183,9 @@ class SearchPanel(ctk.CTkFrame):
             e.bind("<Return>", lambda ev: self._run_search())
         self._search_btn = th.primary_button(bar, t("srch.search"), self._run_search,
                                              width=120, state="disabled")
-        self._search_btn.grid(row=0, column=4, padx=(0, th.PAD))
+        self._search_btn.grid(row=0, column=4, padx=(0, 8))
+        self._kw_btn = th.secondary_button(bar, t("kw.btn"), self._open_keywords, width=170)
+        self._kw_btn.grid(row=0, column=5, padx=(0, th.PAD))
 
         # Body: results on the left, overview on the right
         body = ctk.CTkFrame(self, fg_color="transparent")
@@ -186,7 +198,7 @@ class SearchPanel(ctk.CTkFrame):
         res = th.card(body)
         res.grid(row=0, column=0, sticky="nsew", padx=(0, th.GAP))
         res.grid_columnconfigure(0, weight=1)
-        res.grid_rowconfigure(2, weight=1)
+        res.grid_rowconfigure(3, weight=1)
         hdr = ctk.CTkFrame(res, fg_color="transparent")
         hdr.grid(row=0, column=0, sticky="ew", padx=th.PAD, pady=(th.PAD - 4, 8))
         hdr.grid_columnconfigure(1, weight=1)
@@ -197,10 +209,11 @@ class SearchPanel(ctk.CTkFrame):
         self._count_lbl.grid(row=0, column=1, sticky="w", padx=(12, 0))
         self._filter_btn = th.small_button(hdr, t("srch.clear_filter"),
                                            self._clear_entity_filter, width=120)
-        th.separator(res).grid(row=1, column=0, sticky="ew", padx=th.PAD)
+        self._build_tagbar(res)
+        th.separator(res).grid(row=2, column=0, sticky="ew", padx=th.PAD)
 
         self._stack = ctk.CTkFrame(res, fg_color="transparent")
-        self._stack.grid(row=2, column=0, sticky="nsew", padx=10, pady=(10, 0))
+        self._stack.grid(row=3, column=0, sticky="nsew", padx=10, pady=(10, 0))
         self._stack.grid_columnconfigure(0, weight=1)
         self._stack.grid_rowconfigure(0, weight=1)
 
@@ -208,18 +221,20 @@ class SearchPanel(ctk.CTkFrame):
         tree_wrap.grid(row=0, column=0, sticky="nsew")
         tree_wrap.grid_columnconfigure(0, weight=1)
         tree_wrap.grid_rowconfigure(0, weight=1)
-        self._tree = ttk.Treeview(tree_wrap, columns=("source", "time", "match"),
+        self._tree = ttk.Treeview(tree_wrap, columns=("source", "time", "tags", "match"),
                                   show="headings", style="Srch.Treeview",
-                                  selectmode="browse")
+                                  selectmode="extended")
         vsb = ctk.CTkScrollbar(tree_wrap, orientation="vertical", command=self._tree.yview)
         self._tree.configure(yscrollcommand=vsb.set)
         self._tree.grid(row=0, column=0, sticky="nsew")
         vsb.grid(row=0, column=1, sticky="ns", padx=(2, 0))
         self._tree.column("source", width=170, minwidth=100, stretch=False)
         self._tree.column("time", width=175, minwidth=110, stretch=False)
+        self._tree.column("tags", width=200, minwidth=60, stretch=False)
         self._tree.column("match", width=600, minwidth=200, stretch=True)
         self._tree.tag_configure("odd", background="#16213e")
         self._tree.tag_configure("even", background="#1c2850")
+        self._tree.tag_configure("tagged", foreground="#ffcc80")
         self._tree.bind("<Double-1>", self._open_detail)
         self._tree.bind("<Return>", self._open_detail)
         self._set_tree_headings()
@@ -230,13 +245,16 @@ class SearchPanel(ctk.CTkFrame):
         self._intro.lift()
 
         foot = ctk.CTkFrame(res, fg_color="transparent")
-        foot.grid(row=3, column=0, sticky="ew", padx=th.PAD, pady=(8, th.PAD - 4))
+        foot.grid(row=4, column=0, sticky="ew", padx=th.PAD, pady=(8, th.PAD - 4))
         foot.grid_columnconfigure(0, weight=1)
         self._hint = ctk.CTkLabel(foot, text=t("srch.hint_dbl"), text_color=th.TEXT_DIM,
                                   font=th.f_small(), anchor="w")
         self._hint.grid(row=0, column=0, sticky="w")
+        self._tag_status = ctk.CTkLabel(foot, text="", text_color=th.TEXT_MUTED,
+                                        font=th.f_small(), anchor="e")
+        self._tag_status.grid(row=0, column=1, sticky="e", padx=(12, 12))
         self._more_btn = th.small_button(foot, t("srch.more"), self._load_more, width=130)
-        self._more_btn.grid(row=0, column=1, sticky="e")
+        self._more_btn.grid(row=0, column=2, sticky="e")
         self._more_btn.grid_remove()
 
         # -- Entity overview --
@@ -290,6 +308,7 @@ class SearchPanel(ctk.CTkFrame):
     def _set_tree_headings(self):
         self._tree.heading("source", text=t("srch.col_source"), anchor="w")
         self._tree.heading("time", text=t("srch.col_time"), anchor="w")
+        self._tree.heading("tags", text=t("tag.col_tags"), anchor="w")
         self._tree.heading("match", text=t("srch.col_match"), anchor="w")
 
     def _set_ov_headings(self):
@@ -321,6 +340,8 @@ class SearchPanel(ctk.CTkFrame):
         self._clear_results()
         self._entity_filter = None
         self._filter_btn.grid_remove()
+        self._exit_keyword_mode()
+        self._load_tags()
         self._start_index()
 
     def _start_index(self, force: bool = False):
@@ -450,6 +471,8 @@ class SearchPanel(ctk.CTkFrame):
                 return
         self._entity_filter = None
         self._filter_btn.grid_remove()
+        self._res_title.configure(text=t("srch.results"))
+        self._exit_keyword_mode()
         self._last_query = ("text", (self._query_var.get(), self._selected_files(),
                                      d_from, d_to))
         self._execute(offset=0)
@@ -473,6 +496,12 @@ class SearchPanel(ctk.CTkFrame):
                                          limit=PAGE, offset=offset)
                         total = (ix.count(q, files=files, date_from=d_from, date_to=d_to)
                                  if offset == 0 else self._total)
+                    elif mode == "tagged":
+                        with ctags.CaseTags(target) as tg:
+                            allrows = tg.tagged_items(args or None)
+                        total, rows = len(allrows), allrows[offset:offset + PAGE]
+                    elif mode == "keywords":
+                        total, rows = len(args), args[offset:offset + PAGE]
                     elif mode == "number":
                         allrows = ix.by_number(args, limit=100000)
                         total, rows = len(allrows), allrows[offset:offset + PAGE]
@@ -498,11 +527,17 @@ class SearchPanel(ctk.CTkFrame):
         self._total = total
         start = len(self._rows)
         self._rows.extend(rows)
+        self._row_tags.update(self._fetch_tags([r["row_key"] for r in rows]))
         for i, r in enumerate(rows, start=start):
             match = _one_line(r["snippet"]) if r.get("snippet") else record_summary(r["record"])
+            if r.get("keywords"):
+                match = "🔑 " + ", ".join(r["keywords"]) + "  ·  " + match
+            if r.get("notes"):
+                match = "📝 " + " | ".join(r["notes"]) + "  ·  " + match
             self._tree.insert("", "end", iid=str(i),
-                              values=(source_label(r["file"]), r["dt"] or "", match),
-                              tags=("even" if i % 2 == 0 else "odd",))
+                              values=(source_label(r["file"]), r["dt"] or "",
+                                      self._tags_text(r["row_key"]), match),
+                              tags=self._row_style(i, r["row_key"]))
         self._has_results = True
         self._show_count()
         if len(self._rows) < total:
@@ -528,6 +563,7 @@ class SearchPanel(ctk.CTkFrame):
     def _clear_results(self):
         self._has_results = False
         self._rows = []
+        self._row_tags = {}
         self._total = 0
         self._tree.delete(*self._tree.get_children())
         self._more_btn.grid_remove()
@@ -575,7 +611,7 @@ class SearchPanel(ctk.CTkFrame):
         threading.Thread(target=worker, daemon=True).start()
 
     def _apply_overview(self, target, kind, rows):
-        if target != self._dir or kind != self._kind:
+        if target != self._dir or kind != self._kind or self._kw:
             return
         self._overview_rows = rows
         self._ov_tree.delete(*self._ov_tree.get_children())
@@ -591,6 +627,13 @@ class SearchPanel(ctk.CTkFrame):
             r = self._overview_rows[int(sel[0])]
         except (ValueError, IndexError):
             return
+        if self._kw:                              # keyword mode → rows hit by this term
+            rows = [x for x in self._kw[2] if r["value"] in x.get("keywords", [])]
+            self._last_query = ("keywords", rows)
+            self._res_title.configure(text=t("kw.results_term").format(term=r["value"]))
+            self._filter_btn.grid(row=0, column=2, sticky="e")
+            self._execute(offset=0)
+            return
         if self._kind == "phone":
             self._last_query = ("number", r["norm"])
         else:
@@ -603,9 +646,326 @@ class SearchPanel(ctk.CTkFrame):
     def _clear_entity_filter(self):
         self._entity_filter = None
         self._filter_btn.grid_remove()
-        self._res_title.configure(text=t("srch.results"))
         self._ov_tree.selection_remove(*self._ov_tree.selection())
+        if self._kw:                              # back to all hits of the keyword list
+            self._show_keyword_rows()
+            return
+        self._res_title.configure(text=t("srch.results"))
         self._run_search()
+
+    # ── Tags ─────────────────────────────────────────────────────────────────
+
+    def _build_tagbar(self, parent):
+        bar = ctk.CTkFrame(parent, fg_color="transparent")
+        bar.grid(row=1, column=0, sticky="ew", padx=th.PAD, pady=(0, 8))
+        self._tag_var = ctk.StringVar(value="")
+        self._tag_menu = ctk.CTkOptionMenu(
+            bar, variable=self._tag_var, values=[""], width=170, height=th.BTN_H_SMALL,
+            fg_color=th.BTN_SECONDARY, button_color=th.BTN_SECONDARY,
+            button_hover_color=th.BTN_SECONDARY_HOVER, font=th.f_small(),
+            dynamic_resizing=False, command=self._on_tag_menu)
+        self._tag_menu.pack(side="left", padx=(0, 6))
+        self._tag_btns = {}
+        for key, cmd, w in (("tag.btn_tag", self._tag_selected, 120),
+                            ("tag.btn_tag_all", self._tag_all, 120),
+                            ("tag.btn_untag", self._untag_selected, 90),
+                            ("tag.btn_note", self._note_selected, 90)):
+            b = th.small_button(bar, t(key), cmd, width=w)
+            b.pack(side="left", padx=(0, 6))
+            self._tag_btns[key] = b
+        for key, cmd, w in (("tag.btn_report", self._tagged_report, 160),
+                            ("tag.btn_show", self._show_tagged, 140)):
+            b = th.small_button(bar, t(key), cmd, width=w)
+            b.pack(side="right", padx=(6, 0))
+            self._tag_btns[key] = b
+
+    def _refresh_tagbar_lang(self):
+        for key, b in self._tag_btns.items():
+            b.configure(text=t(key))
+        self._kw_btn.configure(text=t("kw.btn"))
+        self._load_tags()
+
+    def _selected_tag(self) -> str:
+        return self._tag_label_map.get(self._tag_var.get(), "") if hasattr(self, "_tag_label_map") else ""
+
+    def _load_tags(self, select: str | None = None):
+        """Fill the tag menu ("name (count)", + new, − delete)."""
+        if not self._dir:
+            return
+        try:
+            with ctags.CaseTags(self._dir) as tg:
+                tags = tg.list_tags()
+        except Exception as e:
+            self._tag_status.configure(text=str(e), text_color=th.RED)
+            return
+        cur = select or self._selected_tag()
+        self._tag_names = [x["name"] for x in tags]
+        self._tag_label_map = {f'{x["name"]} ({x["count"]})': x["name"] for x in tags}
+        labels = list(self._tag_label_map) + [t("tag.new"), t("tag.delete")]
+        self._tag_menu.configure(values=labels)
+        pick = next((lbl for lbl, n in self._tag_label_map.items() if n == cur), None)
+        self._tag_var.set(pick or (labels[0] if self._tag_label_map else ""))
+
+    def _on_tag_menu(self, label: str):
+        if label == t("tag.new"):
+            name = ask_text(self, t("tag.new"), t("tag.name_prompt"))
+            if name:
+                color = self._tag_colors[len(self._tag_names) % len(self._tag_colors)]
+                with ctags.CaseTags(self._dir) as tg:
+                    tg.add_tag(name, color)
+            self._load_tags(select=name)
+        elif label == t("tag.delete"):
+            self._load_tags()                  # restore the previous selection first
+            name = self._selected_tag()
+            if name and confirm(self, t("tag.delete"), t("tag.delete_q").format(name=name)):
+                with ctags.CaseTags(self._dir) as tg:
+                    tg.delete_tag(name)
+                self._load_tags()
+                self._refresh_row_tags()
+
+    def _fetch_tags(self, keys) -> dict:
+        if not self._dir or not keys:
+            return {}
+        try:
+            with ctags.CaseTags(self._dir) as tg:
+                return tg.tags_for(keys)
+        except Exception:
+            return {}
+
+    def _tags_text(self, key: str) -> str:
+        return ", ".join(self._row_tags.get(key, []))
+
+    def _row_style(self, i: int, key: str) -> tuple:
+        base = "even" if i % 2 == 0 else "odd"
+        return (base, "tagged") if self._row_tags.get(key) else (base,)
+
+    def _refresh_row_tags(self):
+        """Re-read tags of all displayed rows and update the Tags column."""
+        self._row_tags = self._fetch_tags([r["row_key"] for r in self._rows])
+        for i, r in enumerate(self._rows):
+            iid = str(i)
+            if self._tree.exists(iid):
+                self._tree.set(iid, "tags", self._tags_text(r["row_key"]))
+                self._tree.item(iid, tags=self._row_style(i, r["row_key"]))
+
+    def _selected_rows(self) -> list[dict]:
+        out = []
+        for iid in self._tree.selection():
+            try:
+                out.append(self._rows[int(iid)])
+            except (ValueError, IndexError):
+                pass
+        return out
+
+    def _tag_feedback(self, text: str, ok: bool = True):
+        self._tag_status.configure(text=text, text_color=th.GREEN if ok else th.ORANGE)
+
+    def _require_tag(self) -> str:
+        name = self._selected_tag()
+        if not name:
+            self._tag_feedback(t("tag.pick_tag"), ok=False)
+        return name
+
+    def _tag_selected(self):
+        rows, name = self._selected_rows(), self._require_tag()
+        if not name:
+            return
+        if not rows:
+            self._tag_feedback(t("tag.select_rows"), ok=False)
+            return
+        with ctags.CaseTags(self._dir) as tg:
+            n = tg.tag(rows, name)
+        self._tag_feedback(t("tag.done").format(n=n, tag=name))
+        self._load_tags()
+        self._refresh_row_tags()
+
+    def _tag_all(self):
+        name = self._require_tag()
+        if not name or not self._last_query or not self._total:
+            return
+        if not confirm(self, t("tag.btn_tag_all"),
+                       t("tag.all_q").format(n=self._total, tag=name)):
+            return
+        mode, args = self._last_query
+        target = self._dir
+        self._tag_feedback(t("tag.working"))
+
+        def worker():
+            try:
+                if mode in ("keywords",):
+                    rows = list(args)
+                elif mode == "tagged":
+                    with ctags.CaseTags(target) as tg:
+                        rows = tg.tagged_items(args or None)
+                else:
+                    with si.SearchIndex(target) as ix:
+                        if mode == "text":
+                            q, files, d_from, d_to = args
+                            rows = ix.search(q, files=files, date_from=d_from, date_to=d_to,
+                                             limit=max(self._total, 1))
+                        elif mode == "number":
+                            rows = ix.by_number(args, limit=100000)
+                        else:
+                            rows = ix.by_entity(*args, limit=100000)
+                reason = None
+                if mode == "keywords" and self._kw:
+                    reason = f"keyword list: {self._kw[0]}"
+                elif mode == "text":
+                    reason = f"search: {args[0]}"
+                with ctags.CaseTags(target) as tg:
+                    n = tg.tag(rows, name, reason=reason or "")
+                err = None
+            except Exception as e:
+                n, err = 0, str(e)
+            if not self._closing:
+                self.after(0, lambda: self._after_tag_all(target, n, name, err))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _after_tag_all(self, target, n, name, err):
+        if target != self._dir:
+            return
+        if err:
+            self._tag_feedback(err, ok=False)
+            return
+        self._tag_feedback(t("tag.done").format(n=n, tag=name))
+        self._load_tags()
+        self._refresh_row_tags()
+
+    def _untag_selected(self):
+        rows, name = self._selected_rows(), self._require_tag()
+        if not name:
+            return
+        if not rows:
+            self._tag_feedback(t("tag.select_rows"), ok=False)
+            return
+        with ctags.CaseTags(self._dir) as tg:
+            n = tg.untag([r["row_key"] for r in rows], name)
+        self._tag_feedback(t("tag.removed").format(n=n, tag=name))
+        self._load_tags()
+        if self._last_query and self._last_query[0] == "tagged":
+            self._execute(offset=0)            # the item may no longer belong to the view
+        else:
+            self._refresh_row_tags()
+
+    def _note_selected(self):
+        rows = [r for r in self._selected_rows() if self._row_tags.get(r["row_key"])]
+        if not rows:
+            self._tag_feedback(t("tag.note_needs_tag"), ok=False)
+            return
+        first = rows[0].get("notes") or []
+        note = ask_text(self, t("tag.btn_note"), t("tag.note_prompt"),
+                        initial=first[0] if first else "")
+        if note is None:
+            return
+        with ctags.CaseTags(self._dir) as tg:
+            for r in rows:
+                tg.set_note(r["row_key"], note)
+        self._tag_feedback(t("tag.note_saved").format(n=len(rows)))
+        if self._last_query and self._last_query[0] == "tagged":
+            self._execute(offset=0)
+
+    def _show_tagged(self):
+        if not self._dir:
+            return
+        self._exit_keyword_mode()
+        self._entity_filter = None
+        self._last_query = ("tagged", None)
+        self._res_title.configure(text=t("tag.view_title"))
+        self._filter_btn.grid(row=0, column=2, sticky="e")
+        self._execute(offset=0)
+
+    def _tagged_report(self):
+        if not self._dir:
+            return
+        target = self._dir
+        provider = getattr(self, "context_provider", None)
+        dev, case = provider(target) if provider else (None, None)
+        self._tag_feedback(t("tag.report_working"))
+
+        def worker():
+            try:
+                from core.report import generate_tagged_reports
+                pdf, _html, n = generate_tagged_reports(target, device_info=dev, case_meta=case)
+                err = None
+            except Exception as e:
+                pdf, n, err = "", 0, str(e)
+            if not self._closing:
+                self.after(0, lambda: self._after_report(pdf, n, err))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _after_report(self, pdf, n, err):
+        if err:
+            self._tag_feedback(err, ok=False)
+            return
+        self._tag_feedback(t("tag.report_done").format(n=n))
+        if pdf and os.path.exists(pdf):
+            os.startfile(pdf)
+
+    # ── Keyword lists ────────────────────────────────────────────────────────
+
+    def _open_keywords(self):
+        if not self._dir or not si.index_exists(self._dir):
+            self._count_lbl.configure(text=t("kw.need_index"), text_color=th.ORANGE)
+            return
+        KeywordListDialog(self, self._run_keywords)
+
+    def _run_keywords(self, name: str, terms: list[str]):
+        target = self._dir
+        self._count_lbl.configure(text=t("kw.running").format(n=len(terms)),
+                                  text_color=th.TEXT_MUTED)
+
+        def worker():
+            try:
+                per_term, rows = ctags.run_keywords(target, terms, cancel=lambda: self._closing)
+                ctags.audit(target, "keyword_list", list=name, terms=len(terms),
+                            hits=len(rows), per_term=per_term)
+                err = None
+            except Exception as e:
+                per_term, rows, err = [], [], str(e)
+            if not self._closing:
+                self.after(0, lambda: self._apply_keywords(target, name, per_term, rows, err))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_keywords(self, target, name, per_term, rows, err):
+        if target != self._dir:
+            return
+        if err:
+            self._count_lbl.configure(text=err, text_color=th.RED)
+            return
+        self._kw = (name, per_term, rows)
+        # Overview → hits per term (click = rows of that term)
+        self._ov_title.configure(text=t("kw.overview").format(name=name))
+        self._kind_menu.grid_remove()
+        ov = sorted(per_term, key=lambda x: -x["count"])
+        self._overview_rows = [{"value": x["term"], "norm": x["term"], "count": x["count"]}
+                               for x in ov]
+        self._ov_tree.delete(*self._ov_tree.get_children())
+        for i, r in enumerate(self._overview_rows):
+            self._ov_tree.insert("", "end", iid=str(i), values=(r["value"], r["count"]),
+                                 tags=("even" if i % 2 == 0 else "odd",))
+        self._show_keyword_rows()
+
+    def _show_keyword_rows(self):
+        name, per_term, rows = self._kw
+        hit_terms = sum(1 for x in per_term if x["count"])
+        self._res_title.configure(text=t("kw.results").format(
+            name=name, terms=hit_terms, total=len(per_term)))
+        self._filter_btn.grid_remove()
+        self._last_query = ("keywords", rows)
+        self._execute(offset=0)
+
+    def _exit_keyword_mode(self):
+        """Leave the keyword-list view: entity overview comes back (reloaded)."""
+        if self._kw:
+            self._kw = None
+            self._ov_title.configure(text=t("srch.overview"))
+            self._kind_menu.grid()
+            self._ov_tree.delete(*self._ov_tree.get_children())
+            self._overview_rows = []
+            self._load_overview()
 
     # ── Other ────────────────────────────────────────────────────────────────
 
@@ -630,10 +990,11 @@ class SearchPanel(ctk.CTkFrame):
             self._dir_label.configure(text=t("srch.no_folder"))
         if self._entity_filter:
             self._res_title.configure(text=t("srch.filter").format(v=self._entity_filter[2]))
-        else:
+        elif not self._kw and not (self._last_query and self._last_query[0] == "tagged"):
             self._res_title.configure(text=t("srch.results"))
         self._set_tree_headings()
         self._set_ov_headings()
+        self._refresh_tagbar_lang()
         if self._files:
             self._apply_meta(self._dir, self._files, self._summary)
         else:

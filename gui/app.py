@@ -428,6 +428,7 @@ class ForenziQApp(ctk.CTk):
         elif view == "search":
             from .search_panel import SearchPanel
             p = SearchPanel(self._content, accent=ACCENT)
+            p.context_provider = self._report_context
             self._search_panel = p
             if self._search_dir:
                 p.set_dir(self._search_dir)
@@ -979,6 +980,14 @@ class ForenziQApp(ctk.CTk):
     def _open_output_dir(self):
         if self.output_dir and os.path.exists(self.output_dir):
             os.startfile(self.output_dir)
+
+    def _report_context(self, folder: str):
+        """(device_info, case_meta) for reports of `folder`: the live session's data when it
+        is the current output folder, otherwise None → read from the folder's files."""
+        if self.output_dir and folder and \
+                os.path.normcase(os.path.abspath(folder)) == os.path.normcase(os.path.abspath(self.output_dir)):
+            return self.device_info or None, getattr(self, "_case_meta", None)
+        return None, None
 
     def _open_report(self):
         if not self.output_dir:

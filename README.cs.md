@@ -28,6 +28,8 @@
 - **Hledání napříč všemi zdroji** – fulltext nezávislý na diakritice a jazyku (včetně čínštiny,
   japonštiny, korejštiny, thajštiny), telefonní čísla v libovolném národním i mezinárodním tvaru,
   automatické rozpoznání e-mailů, URL, IBAN, kryptoadres, IMEI, platebních karet a IP adres
+- **Štítky a seznamy klíčových slov** – označování záznamů (Důkaz / Podezřelé / vlastní štítky, poznámky),
+  opakovaně použitelné seznamy klíčových slov, **report jen z označených položek** (PDF + HTML), audit
 - **Časová osa** zpráv, hovorů, historie prohlížeče a fotek
 - **Mapa GPS** míst pořízení fotek
 - **Porovnání záloh** – nové / odstraněné / změněné záznamy mezi dvěma extrakcemi

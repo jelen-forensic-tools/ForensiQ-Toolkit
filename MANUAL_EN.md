@@ -273,6 +273,30 @@ The **Overview** panel lists identifiers found in the data, with the number of r
 Clicking an item shows every record that contains it (**Clear filter** returns to the text search).
 Detection of crypto addresses and licence plates is based on patterns – treat them as hints and verify.
 
+### 9.2 Tags, keyword lists and the tagged report
+
+**Tags.** Select records in the results (Ctrl/Shift + click), choose a tag in the tag bar and click
+**Tag selected** – or **Tag all** to tag every record of the current search. Default tags are *Evidence*,
+*Suspicious* and *To review*; create your own with **＋ New tag…**. **Remove** takes the chosen tag off the
+selected records, **Note** adds a comment to tagged records. **Tagged items** lists everything tagged in
+the case; the *Tags* column shows the tags of every result.
+
+**Keyword lists.** **Keyword lists** opens a dialog where you create, edit or import (`.txt`) lists of
+terms – one per line (words, phrases, phone numbers, e-mails…), lines starting with `#` are comments.
+Lists are stored outside the case (`~/.forenziq/keyword_lists/`) and can be reused and shared.
+**Search list** runs all terms at once with the same rules as the search field (accents, number formats…):
+the results show which terms hit each record (🔑) and the right panel shows the number of hits per term –
+click a term to see only its records. **Tag all** then tags all hits.
+
+**Report of tagged items.** **Tagged report** creates `report_tagged.pdf` and `report_tagged.html` in the
+output folder with the same layout as the main report. Each record carries its tags, note, who tagged it
+and when, and the SHA-256 of its source file at tagging time.
+
+**Audit trail.** Every tagging action, note, keyword list run and tagged report is appended to
+`_case/audit.jsonl` (time, examiner from Settings, action). Tags are stored in `_case/tags.sqlite`;
+the `_case/` folder and generated reports are analyst work product and are not part of the evidence
+manifest.
+
 ---
 
 ## 10. Backup Import (Android vendor backups)

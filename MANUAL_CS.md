@@ -274,6 +274,30 @@ Panel **Přehled** vypisuje identifikátory nalezené v datech a počet záznam�
 Kliknutím na položku zobrazíte všechny záznamy, které ji obsahují (**Zrušit filtr** vrátí textové hledání).
 Kryptoadresy a SPZ se rozpoznávají podle tvaru textu – berte je jako nápovědu a ověřte je.
 
+### 9.2 Štítky, seznamy klíčových slov a report označených položek
+
+**Štítky.** Ve výsledcích vyberte záznamy (Ctrl/Shift + klik), v liště zvolte štítek a klikněte na
+**Označit vybrané** – nebo **Označit vše** pro všechny záznamy aktuálního hledání. Výchozí štítky jsou
+*Důkaz*, *Podezřelé* a *K prověření*; vlastní vytvoříte přes **＋ Nový štítek…**. **Odebrat** sundá zvolený
+štítek z vybraných záznamů, **Poznámka** přidá komentář k označeným záznamům. **Označené položky** vypíšou
+vše označené v případu; sloupec *Štítky* ukazuje štítky u každého výsledku.
+
+**Seznamy klíčových slov.** Tlačítko **Seznamy klíčových slov** otevře dialog, kde seznamy výrazů
+vytvoříte, upravíte nebo naimportujete (`.txt`) – jeden výraz na řádek (slova, fráze, telefonní čísla,
+e-maily…), řádky začínající `#` jsou komentáře. Seznamy se ukládají mimo případ
+(`~/.forenziq/keyword_lists/`), takže je lze používat opakovaně a sdílet. **Hledat seznam** spustí všechny
+výrazy najednou se stejnými pravidly jako vyhledávací pole (diakritika, tvary čísel…): u výsledků je vidět,
+které výrazy záznam zasáhly (🔑), a pravý panel ukazuje počet zásahů pro každý výraz – kliknutím na výraz
+zobrazíte jen jeho záznamy. **Označit vše** pak označí všechny zásahy.
+
+**Report označených položek.** **Report z označených** vytvoří ve výstupní složce `report_tagged.pdf`
+a `report_tagged.html` ve stejné podobě jako hlavní report. U každého záznamu jsou jeho štítky, poznámka,
+kdo a kdy ho označil a SHA-256 zdrojového souboru v době označení.
+
+**Auditní záznam.** Každé označení, poznámka, spuštění seznamu klíčových slov i report se zapíše do
+`_case/audit.jsonl` (čas, vyšetřovatel z Nastavení, akce). Štítky jsou v `_case/tags.sqlite`; složka
+`_case/` i vygenerované reporty jsou pracovní výstup analytika a nejsou součástí manifestu důkazů.
+
 ---
 
 ## 10. Import zálohy (zálohy výrobců Androidu)

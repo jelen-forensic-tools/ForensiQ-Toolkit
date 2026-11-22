@@ -104,7 +104,8 @@ def _case_info(case_meta: dict | None) -> dict:
 
 
 def generate_pdf_report(results: list, device_info: dict, output_dir: str,
-                        case_meta: dict | None = None) -> str:
+                        case_meta: dict | None = None, file_name: str = "report.pdf",
+                        subtitle: str | None = None) -> str:
     """Professional forensic PDF report: cover page with logos and case details,
     clickable table of contents, PDF outline (bookmarks), header and footer on every page.
     The text is real → full-text search (Ctrl+F) works."""
@@ -168,7 +169,7 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
     from xml.sax.saxutils import escape as _xml_escape
 
     timestamp = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-    pdf_path  = os.path.join(output_dir, "report.pdf")
+    pdf_path  = os.path.join(output_dir, file_name)
 
     manufacturer = device_info.get("manufacturer", "N/A")
     model        = device_info.get("model", "N/A")
@@ -344,7 +345,7 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
     # Large title
     story.append(Paragraph(t("rpt.title_upper"),
                            _st("ctitle", font=FB, size=30, color=C_NAVY, after=4, leading=34)))
-    story.append(Paragraph(t("rpt.cover_subtitle"),
+    story.append(Paragraph(_xml_escape(subtitle or t("rpt.cover_subtitle")),
                            _st("csub", size=12.5, color=C_BLUE, after=0, leading=16)))
     # cyan separator
     sep = Table([[""]], colWidths=[4 * cm], rowHeights=[3])
@@ -775,7 +776,8 @@ def generate_excel_report(results: list, device_info: dict, output_dir: str) -> 
 
 
 def generate_report(results: list, device_info: dict, output_dir: str,
-                    case_meta: dict | None = None) -> str:
+                    case_meta: dict | None = None, file_name: str = "report.html",
+                    subtitle: str | None = None) -> str:
     """HTML report with the same structure and look as the PDF report: cover with logos
     and case details, table of contents, device information, extraction summary and
     extracted data with photo previews. Tables stay interactive (search, sort, paging);
@@ -786,7 +788,7 @@ def generate_report(results: list, device_info: dict, output_dir: str,
     from .version import __version__
 
     timestamp = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-    report_path = os.path.join(output_dir, "report.html")
+    report_path = os.path.join(output_dir, file_name)
 
     manufacturer = device_info.get("manufacturer", "N/A")
     model        = device_info.get("model", "N/A")
@@ -857,7 +859,7 @@ def generate_report(results: list, device_info: dict, output_dir: str,
         cover.append(f'<img class="company-logo" src="{company_logo}" alt="">')
     cover.append('</div>')
     cover.append(f'<h1 class="ctitle">{esc(t("rpt.title_upper"))}</h1>'
-                 f'<div class="csub">{esc(t("rpt.cover_subtitle"))}</div>'
+                 f'<div class="csub">{esc(subtitle or t("rpt.cover_subtitle"))}</div>'
                  '<div class="accent-bar"></div>')
     if cfg.get("report_show_case_details", True):
         cover.append(kv_block(t("rpt.case_details"), [
@@ -1137,3 +1139,70 @@ window.addEventListener('afterprint',()=>{for(const i in st){st[i].all=false;ren
         f.write(html)
     return report_path
 
+
+# ── Report of tagged items ────────────────────────────────────────────────────
+
+class _TaggedGroup:
+    """Result-like group of tagged records from one source (file + section)."""
+
+    def __init__(self, module: str, label: str, data: list):
+        self.module = module
+        self.label = label
+        self.data = data
+        self.count = len(data)
+        self.success = True
+        self.error = ""
+        self.file_path = ""
+
+
+def generate_tagged_reports(output_dir: str, tag: str | None = None,
+                            device_info: dict | None = None,
+                            case_meta: dict | None = None) -> tuple[str, str, int]:
+    """PDF + HTML report containing only tagged records (optionally one tag).
+
+    Records are grouped by source; each row starts with its tags, notes, the examiner
+    who tagged it and the SHA-256 of the source file at tagging time.
+    Returns (pdf_path, html_path, item_count).
+    """
+    from .case_tags import CaseTags, audit, load_case_context
+    ctx_dev, ctx_case = load_case_context(output_dir)
+    device_info = device_info or ctx_dev
+    case_meta = case_meta or ctx_case
+    with CaseTags(output_dir) as ct:
+        items = ct.tagged_items(tag)
+    if not items:
+        raise ValueError(t("tag.none_tagged"))
+
+    def _label(fname: str, section: str) -> str:
+        stem = os.path.splitext(fname)[0]
+        key = {"browser_history": "mod.browser", "wifi_networks": "mod.wifi",
+               "media_files": "mod.media", "apps_installed": "mod.apps"}.get(stem, f"mod.{stem}")
+        base = t(key) if has(key) else stem.replace("_", " ").capitalize()
+        return f"{base} – {section}" if section else base
+
+    groups: dict[tuple, list] = {}
+    for it in items:
+        rec = it["record"] if isinstance(it["record"], dict) else {"value": it["record"]}
+        row = {t("tag.col_tags"): ", ".join(it["tags"]),
+               t("tag.col_note"): " | ".join(it["notes"])}
+        for k, v in rec.items():
+            row[k] = json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v
+        row[t("tag.col_examiner")] = f'{it["examiner"]} · {(it["tagged_at"] or "").replace("T", " ")}'
+        row[t("tag.col_source")] = f'{it["file"]} · SHA-256 {(it["source_sha256"] or "-")[:16]}…'
+        groups.setdefault((it["file"], it["section"]), []).append(row)
+
+    results = []
+    for (fname, section), rows in groups.items():
+        # every row gets all columns of its group (records of one source can differ)
+        cols = list(dict.fromkeys(k for r in rows for k in r))
+        data = [{c: r.get(c, "") for c in cols} for r in rows]
+        results.append(_TaggedGroup(os.path.splitext(fname)[0], _label(fname, section), data))
+
+    subtitle = t("tag.report_subtitle") + (f" – {tag}" if tag else "")
+    pdf = generate_pdf_report(results, device_info, output_dir, case_meta=case_meta,
+                              file_name="report_tagged.pdf", subtitle=subtitle)
+    html = generate_report(results, device_info, output_dir, case_meta=case_meta,
+                           file_name="report_tagged.html", subtitle=subtitle)
+    audit(output_dir, "tagged_report", tag=tag or "*", items=len(items),
+          files=["report_tagged.pdf", "report_tagged.html"])
+    return pdf, html, len(items)
