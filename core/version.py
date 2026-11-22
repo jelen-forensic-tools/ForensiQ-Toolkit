@@ -8,7 +8,7 @@ in the window title, report footers and the evidence manifest; the logo shows on
 short version.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 BUILD = ""
 
 
