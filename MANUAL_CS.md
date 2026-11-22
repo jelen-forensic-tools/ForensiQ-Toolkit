@@ -282,6 +282,12 @@ Kryptoadresy a SPZ se rozpoznávají podle tvaru textu – berte je jako nápov�
 štítek z vybraných záznamů, **Poznámka** přidá komentář k označeným záznamům. **Označené položky** vypíšou
 vše označené v případu; sloupec *Štítky* ukazuje štítky u každého výsledku.
 
+Označovat lze i mimo Hledání: v panelu **Výsledky** vyberte řádky tabulky a klikněte na **🏷 Štítek ▾**
+(nebo pravým tlačítkem); v **Časové ose** otevřete událost a v jejím detailu použijte **🏷 Štítek ▾**.
+Zaškrtnutý štítek znamená, že ho mají všechny vybrané záznamy – kliknutím ho odeberete. Štítky jsou
+společné pro celý případ, takže se ukážou i v Hledání a v reportu označených položek. Označené řádky
+ve Výsledcích jsou zvýrazněné oranžově.
+
 **Seznamy klíčových slov.** Tlačítko **Seznamy klíčových slov** otevře dialog, kde seznamy výrazů
 vytvoříte, upravíte nebo naimportujete (`.txt`) – jeden výraz na řádek (slova, fráze, telefonní čísla,
 e-maily…), řádky začínající `#` jsou komentáře. Seznamy se ukládají mimo případ

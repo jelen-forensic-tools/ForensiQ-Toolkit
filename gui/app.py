@@ -424,6 +424,7 @@ class ForenziQApp(ctk.CTk):
                              on_excel=self._export_excel,
                              on_evidence=self._generate_evidence,
                              on_verify=self._verify_evidence)
+            p.on_tags_changed = lambda _msg: self._tags_changed()
             self._results_panel = p
         elif view == "search":
             from .search_panel import SearchPanel
@@ -439,6 +440,7 @@ class ForenziQApp(ctk.CTk):
         elif view == "timeline":
             from .timeline import TimelinePanel
             p = TimelinePanel(self._content, accent=ACCENT)
+            p.on_tags_changed = lambda _msg: self._tags_changed()
             self._timeline_panel = p
         elif view == "map":
             from .map_panel import MapPanel
@@ -827,6 +829,12 @@ class ForenziQApp(ctk.CTk):
         self._build_panel("timeline")
         self._timeline_panel.load_dir(target)
         self._set_search_dir(target)
+
+    def _tags_changed(self):
+        """Tags edited in Results / Timeline – refresh the Search panel if it is open."""
+        panel = self._view_panels.get("search")
+        if panel is not None and hasattr(panel, "refresh_tags"):
+            panel.refresh_tags()
 
     def _set_search_dir(self, folder: str):
         """Pass the results folder to the Search panel. If the panel has not been

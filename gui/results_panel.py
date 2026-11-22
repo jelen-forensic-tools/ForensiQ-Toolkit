@@ -18,8 +18,10 @@ try:
 except Exception:
     _PIL_OK = False
 
+from core import case_tags as ct
 from core.i18n import t, field_label
 from . import theme as th
+from .tagging import popup_tag_menu
 from .iconset import module_icon
 
 # Media file types recognised by the thumbnail gallery
@@ -95,8 +97,14 @@ class ResultsPanel(ctk.CTkFrame):
         self._selected: Optional[object] = None
         self._selected_card: Optional[ctk.CTkFrame] = None
 
+        # Called with a message after tags were changed here (app refreshes Search)
+        self.on_tags_changed: Optional[Callable] = None
+
         # Table state
         self._all_rows: list[dict] = []
+        self._tag_src: Optional[tuple] = None      # (output_dir, file name) when taggable
+        self._row_tags: dict = {}                  # row index → [tag names]
+        self._tag_rows_cache: Optional[list] = None
         self._columns: list[str] = []
         self._tree: Optional[ttk.Treeview] = None
         self._gallery_token = None
@@ -177,6 +185,10 @@ class ResultsPanel(ctk.CTkFrame):
         )
         self._search_entry.pack(side="left", padx=(0, 6))
         self._search_var.trace_add("write", lambda *_: self._filter())
+
+        self._btn_tag = th.small_button(right_hdr, t("res.tag_btn"), self._tag_button,
+                                        width=90, state="disabled")
+        self._btn_tag.pack(side="left", padx=(0, 6))
 
         self._btn_json = th.small_button(right_hdr, t("res.open_json"), self._open_json,
                                          width=100, state="disabled")
@@ -313,6 +325,10 @@ class ResultsPanel(ctk.CTkFrame):
         self._all_rows = []
         self._columns = []
         self._tree = None
+        self._tag_src = None
+        self._row_tags = {}
+        self._tag_rows_cache = None
+        self._btn_tag.configure(state="disabled")
 
         # Header
         self._detail_title.configure(text=result.label)
@@ -356,6 +372,10 @@ class ResultsPanel(ctk.CTkFrame):
             first = data[0] if data else None
             if isinstance(first, dict):
                 self._all_rows = data
+                fp = result.file_path or ""
+                if fp.lower().endswith(".json") and os.path.isfile(fp):
+                    self._tag_src = (os.path.dirname(os.path.abspath(fp)), os.path.basename(fp))
+                    self._btn_tag.configure(state="normal")
                 self._render_table(data)
             else:
                 self._all_rows = [{t("res.value_col"): str(v)} for v in data]
@@ -607,7 +627,7 @@ class ResultsPanel(ctk.CTkFrame):
 
         self._tree = ttk.Treeview(
             wrapper, columns=self._columns, show="headings",
-            style="Res.Treeview", selectmode="browse",
+            style="Res.Treeview", selectmode="extended",
         )
         vsb = ctk.CTkScrollbar(wrapper, orientation="vertical", command=self._tree.yview)
         hsb = ctk.CTkScrollbar(wrapper, orientation="horizontal", command=self._tree.xview)
@@ -623,19 +643,99 @@ class ResultsPanel(ctk.CTkFrame):
 
         self._tree.tag_configure("odd",  background="#16213e")
         self._tree.tag_configure("even", background="#1c2850")
+        self._tree.tag_configure("tagged", foreground="#ffcc80")
         self._tree.bind("<Double-1>", self._on_row_double_click)
+        if self._tag_src:
+            self._tree.bind("<Button-3>", self._on_right_click)
+            self._load_row_tags()
 
-        self._populate(data)
+        self._populate(list(enumerate(data)))
 
-    def _populate(self, rows: list[dict]):
+    def _populate(self, rows: list[tuple[int, dict]]):
+        """rows = [(index in self._all_rows, row)]; the index is used as the item id."""
         if not self._tree:
             return
         for item in self._tree.get_children():
             self._tree.delete(item)
-        for i, row in enumerate(rows):
+        for i, (idx, row) in enumerate(rows):
             vals = [str(row.get(c, "")) for c in self._columns]
-            tag = "even" if i % 2 == 0 else "odd"
-            self._tree.insert("", "end", values=vals, tags=(tag,))
+            self._tree.insert("", "end", iid=str(idx), values=vals, tags=self._row_style(i, idx))
+
+    def _row_style(self, pos: int, idx: int) -> tuple:
+        base = "even" if pos % 2 == 0 else "odd"
+        return (base, "tagged") if self._row_tags.get(idx) else (base,)
+
+    # ── Tagging ───────────────────────────────────────────────────────────────
+
+    def _tag_rows(self) -> list[dict]:
+        """Taggable rows for all records of the shown result (index-aligned with _all_rows).
+
+        Records are taken from the JSON file itself when it matches the shown data, so the
+        row key is the same one the search index computes."""
+        if self._tag_rows_cache is None:
+            out_dir, fname = self._tag_src
+            recs = ct.file_records(out_dir, fname)
+            if len(recs) == len(self._all_rows) and all(s == "" for s, _i, _r in recs):
+                self._tag_rows_cache = [ct.make_row(fname, r, s, i) for s, i, r in recs]
+            else:
+                self._tag_rows_cache = [ct.make_row(fname, r, "", i)
+                                        for i, r in enumerate(self._all_rows)]
+        return self._tag_rows_cache
+
+    def _load_row_tags(self):
+        try:
+            rows = self._tag_rows()
+            with ct.CaseTags(self._tag_src[0]) as tg:
+                by_key = tg.tags_for(r["row_key"] for r in rows)
+        except Exception:
+            self._row_tags = {}
+            return
+        self._row_tags = {i: by_key[r["row_key"]] for i, r in enumerate(rows)
+                          if r["row_key"] in by_key}
+        n = len(self._row_tags)
+        if self._selected is not None and self._selected.success:
+            text = f"{self._selected.count} {t('res.records')}"
+            if n:
+                text += "  ·  " + t("res.tagged_count").format(n=n)
+            self._detail_count.configure(text=text)
+
+    def _selected_tag_rows(self) -> list[dict]:
+        if not self._tree or not self._tag_src:
+            return []
+        rows = self._tag_rows()
+        out = []
+        for iid in self._tree.selection():
+            try:
+                out.append(rows[int(iid)])
+            except (ValueError, IndexError):
+                pass
+        return out
+
+    def _popup_tags(self, x: int, y: int):
+        rows = self._selected_tag_rows()
+        if not rows:
+            self._detail_count.configure(text=t("tag.select_rows"), text_color=ORANGE)
+            return
+        popup_tag_menu(self, self._tag_src[0], rows, x, y, on_change=self._after_tagging)
+
+    def _tag_button(self):
+        b = self._btn_tag
+        self._popup_tags(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
+
+    def _on_right_click(self, event):
+        iid = self._tree.identify_row(event.y)
+        if iid and iid not in self._tree.selection():
+            self._tree.selection_set(iid)
+        self._popup_tags(event.x_root, event.y_root)
+
+    def _after_tagging(self, msg: str):
+        self._load_row_tags()
+        if self._tree:
+            for pos, iid in enumerate(self._tree.get_children("")):
+                self._tree.item(iid, tags=self._row_style(pos, int(iid)))
+        self._detail_count.configure(text_color=TEXT_MUTED)
+        if self.on_tags_changed:
+            self.on_tags_changed(msg)
 
     # ── Filtering and sorting ─────────────────────────────────────────────────
 
@@ -643,10 +743,8 @@ class ResultsPanel(ctk.CTkFrame):
         if not self._tree or not self._all_rows:
             return
         q = self._search_var.get().lower().strip()
-        filtered = self._all_rows if not q else [
-            r for r in self._all_rows
-            if any(q in str(v).lower() for v in r.values())
-        ]
+        filtered = [(i, r) for i, r in enumerate(self._all_rows)
+                    if not q or any(q in str(v).lower() for v in r.values())]
         self._populate(filtered)
 
     def _sort(self, col: str):
@@ -657,7 +755,7 @@ class ResultsPanel(ctk.CTkFrame):
         rows.sort(key=lambda x: x[0].lower())
         for i, (_, child) in enumerate(rows):
             self._tree.move(child, "", i)
-            self._tree.item(child, tags=("even" if i % 2 == 0 else "odd",))
+            self._tree.item(child, tags=self._row_style(i, int(child)))
 
     def _on_row_double_click(self, event):
         if not self._tree:
@@ -665,7 +763,8 @@ class ResultsPanel(ctk.CTkFrame):
         sel = self._tree.selection()
         if not sel:
             return
-        vals = self._tree.item(sel[0], "values")
+        iid = self._tree.identify_row(event.y) or sel[0]
+        vals = self._tree.item(iid, "values")
         row = dict(zip(self._columns, vals))
         _RowDetailDialog(self, row, self._selected.label if self._selected else "")
 
@@ -682,6 +781,7 @@ class ResultsPanel(ctk.CTkFrame):
         self._btn_verify.configure(text=t("ev.verify_btn"))
         self._search_entry.configure(placeholder_text=t("res.search"))
         self._btn_json.configure(text=t("res.open_json"))
+        self._btn_tag.configure(text=t("res.tag_btn"))
         self._cards_title.configure(text=t("ui.modules"))
 
 

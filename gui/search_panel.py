@@ -119,8 +119,6 @@ class SearchPanel(ctk.CTkFrame):
         self._row_tags: dict[str, list] = {}    # row_key → tag names (displayed rows)
         self._tag_names: list[str] = []
         self._kw = None                         # (list name, per_term, rows) after a keyword run
-        self._tag_colors = ["#e53935", "#fb8c00", "#1e88e5", "#43a047", "#8e24aa",
-                            "#00acc1", "#6d4c41", "#d81b60"]
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
@@ -710,9 +708,8 @@ class SearchPanel(ctk.CTkFrame):
         if label == t("tag.new"):
             name = ask_text(self, t("tag.new"), t("tag.name_prompt"))
             if name:
-                color = self._tag_colors[len(self._tag_names) % len(self._tag_colors)]
                 with ctags.CaseTags(self._dir) as tg:
-                    tg.add_tag(name, color)
+                    tg.add_tag(name, tg.next_color())
             self._load_tags(select=name)
         elif label == t("tag.delete"):
             self._load_tags()                  # restore the previous selection first
@@ -968,6 +965,17 @@ class SearchPanel(ctk.CTkFrame):
             self._load_overview()
 
     # ── Other ────────────────────────────────────────────────────────────────
+
+    def refresh_tags(self, folder: str = ""):
+        """Tags were changed elsewhere (Results / Timeline) – update menu and rows."""
+        if not self._dir or (folder and os.path.normcase(os.path.abspath(folder))
+                             != os.path.normcase(os.path.abspath(self._dir))):
+            return
+        self._load_tags()
+        if self._last_query and self._last_query[0] == "tagged":
+            self._execute(offset=0)
+        elif self._rows:
+            self._refresh_row_tags()
 
     def shutdown(self):
         """Stop background indexing (called when the application closes)."""

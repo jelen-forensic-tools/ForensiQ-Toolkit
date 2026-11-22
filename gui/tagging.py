@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-Dialogs for tagging and keyword lists (used by the Search panel).
+Dialogs for tagging and keyword lists (Search, Results and Timeline panels).
 
   • ask_text()          – small modal text input (tag name, note)
   • confirm()           – yes/no question
+  • popup_tag_menu()    – right-click / button menu that tags the given records
   • KeywordListDialog   – manage case-independent keyword lists and run one
 """
 import os
+import tkinter as tk
 from tkinter import filedialog
 
 import customtkinter as ctk
@@ -70,6 +72,78 @@ def confirm(parent, title: str, msg: str) -> bool:
     d.bind("<Escape>", lambda _e: d.destroy())
     parent.wait_window(d)
     return res["v"]
+
+
+def popup_tag_menu(parent, output_dir: str, rows: list[dict], x: int, y: int,
+                   on_change=None) -> None:
+    """Pop-up menu that tags / untags the given rows (see core.case_tags.make_row).
+
+    Each tag is a check item: ticked when every row already has it; clicking toggles
+    (untag when all have it, otherwise tag the rest). Also "New tag…" and "Note…".
+    on_change(message) is called after any change.
+    """
+    if not output_dir or not rows:
+        return
+    try:
+        with ct.CaseTags(output_dir) as tg:
+            tags = tg.list_tags()
+            have = tg.tags_for(r["row_key"] for r in rows)
+    except Exception as e:
+        if on_change:
+            on_change(str(e))
+        return
+
+    def done(msg):
+        if on_change:
+            on_change(msg)
+
+    def toggle(name, all_have):
+        with ct.CaseTags(output_dir) as tg:
+            if all_have:
+                n = tg.untag([r["row_key"] for r in rows], name)
+                done(t("tag.removed").format(n=n, tag=name))
+            else:
+                n = tg.tag(rows, name)
+                done(t("tag.done").format(n=n, tag=name))
+
+    def new_tag():
+        name = ask_text(parent, t("tag.new"), t("tag.name_prompt"))
+        if name:
+            with ct.CaseTags(output_dir) as tg:
+                tg.add_tag(name, tg.next_color())
+                n = tg.tag(rows, name)
+            done(t("tag.done").format(n=n, tag=name))
+
+    def note():
+        keys = [r["row_key"] for r in rows if have.get(r["row_key"])]
+        if not keys:
+            done(t("tag.note_needs_tag"))
+            return
+        text = ask_text(parent, t("tag.btn_note"), t("tag.note_prompt"))
+        if text is None:
+            return
+        with ct.CaseTags(output_dir) as tg:
+            for k in keys:
+                tg.set_note(k, text)
+        done(t("tag.note_saved").format(n=len(keys)))
+
+    m = tk.Menu(parent, tearoff=0, bg=th.BG_PANEL, fg=th.TEXT, activebackground="#1e4080",
+                activeforeground="#ffffff", selectcolor=th.ACCENT, bd=0)
+    for tag in tags:
+        name = tag["name"]
+        all_have = all(name in have.get(r["row_key"], []) for r in rows)
+        var = tk.BooleanVar(value=all_have)
+        m.add_checkbutton(label=name, variable=var, foreground=tag["color"],
+                          command=lambda n=name, a=all_have: toggle(n, a))
+        m._vars = getattr(m, "_vars", []) + [var]       # keep the variables alive
+    m.add_separator()
+    m.add_command(label=t("tag.new"), command=new_tag)
+    m.add_command(label=t("tag.btn_note") + "…", command=note,
+                  state="normal" if have else "disabled")
+    try:
+        m.tk_popup(x, y)
+    finally:
+        m.grab_release()
 
 
 class KeywordListDialog(ctk.CTkToplevel):

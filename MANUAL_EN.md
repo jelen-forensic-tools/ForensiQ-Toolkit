@@ -281,6 +281,11 @@ Detection of crypto addresses and licence plates is based on patterns – treat 
 selected records, **Note** adds a comment to tagged records. **Tagged items** lists everything tagged in
 the case; the *Tags* column shows the tags of every result.
 
+You can also tag outside Search: in **Results** select table rows and click **🏷 Tag ▾** (or right-click);
+in the **Timeline** open an event and use **🏷 Tag ▾** in its detail. A ticked tag means all selected
+records already have it – clicking it removes it. Tags are shared by the whole case, so they also appear
+in Search and in the tagged report. Tagged rows in Results are highlighted in orange.
+
 **Keyword lists.** **Keyword lists** opens a dialog where you create, edit or import (`.txt`) lists of
 terms – one per line (words, phrases, phone numbers, e-mails…), lines starting with `#` are comments.
 Lists are stored outside the case (`~/.forenziq/keyword_lists/`) and can be reused and shared.

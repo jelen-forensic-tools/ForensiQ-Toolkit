@@ -35,6 +35,10 @@ DEFAULT_TAGS = [("tag.default.evidence", "#e53935"),
                 ("tag.default.suspicious", "#fb8c00"),
                 ("tag.default.review", "#1e88e5")]
 
+# colours offered to new tags (cycled)
+TAG_COLORS = ["#e53935", "#fb8c00", "#1e88e5", "#43a047", "#8e24aa",
+              "#00acc1", "#6d4c41", "#d81b60"]
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS tags(
     id INTEGER PRIMARY KEY,
@@ -164,13 +168,26 @@ class CaseTags:
         except sqlite3.Error:
             return {}
 
+    def next_color(self) -> str:
+        n = self.conn.execute("SELECT COUNT(*) FROM tags").fetchone()[0]
+        return TAG_COLORS[n % len(TAG_COLORS)]
+
     def tag(self, rows: Iterable[dict], tag_name: str, note: str = "",
             reason: str = "") -> int:
         """Tag search rows ({row_key, file, section, idx, dt, record}); returns newly tagged count."""
+        rows = list(rows)
         tid = self._tag_id(tag_name)
         if tid is None:
-            tid = self.add_tag(tag_name)
+            tid = self.add_tag(tag_name, self.next_color())
         hashes = self._source_hashes()
+        # files not (yet) in the search index – hash them directly
+        for name in {r["file"] for r in rows} - set(hashes):
+            path = os.path.join(self.output_dir, name)
+            if os.path.isfile(path):
+                try:
+                    hashes[name] = si._sha256(path)
+                except OSError:
+                    pass
         examiner = current_examiner()
         now = _now()
         added = 0
@@ -260,6 +277,25 @@ class CaseTags:
 
     def count_tagged(self) -> int:
         return self.conn.execute("SELECT COUNT(DISTINCT row_key) FROM tagged").fetchone()[0]
+
+
+# ── Rows from panels other than Search ───────────────────────────────────────
+
+def make_row(file: str, record: dict, section: str = "", idx: int = 0) -> dict:
+    """A taggable row for a record of <output_dir>/<file>, identical to what the
+    search index produces for it (same row_key and dt), so tags show up everywhere."""
+    _text, dt_val, _n, _e = si.analyze_record(record, kinds=set())
+    return {"row_key": si.row_key(record), "file": file, "section": section or "",
+            "idx": int(idx), "dt": dt_val, "record": record}
+
+
+def file_records(output_dir: str, file: str) -> list[tuple[str, int, dict]]:
+    """(section, idx, record) of a data JSON file, split exactly like the index does."""
+    try:
+        with open(os.path.join(output_dir, file), encoding="utf-8", errors="replace") as f:
+            return list(si.iter_records(json.load(f)))
+    except (OSError, ValueError):
+        return []
 
 
 # ── Keyword lists ────────────────────────────────────────────────────────────

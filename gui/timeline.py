@@ -52,41 +52,56 @@ def load_events(output_dir: str) -> list[dict]:
     """Parse extraction output files – call in a background thread."""
     events = []
 
-    def _add(dt, source, title, detail="", raw=None):
+    def _add(dt, source, title, detail="", raw=None, ref=None):
+        # ref = (file, section, idx) of the record – used for tagging
         if dt:
             events.append({"dt": dt, "source": source,
                            "title": title, "detail": detail,
-                           "raw": raw or {}})
+                           "raw": raw or {}, "ref": ref})
 
-    for msg in _load(os.path.join(output_dir, "sms.json")):
+    def _list(name):
+        data = _load(os.path.join(output_dir, name))
+        return list(enumerate(data)) if isinstance(data, list) else []
+
+    for i, msg in _list("sms.json"):
+        if not isinstance(msg, dict):
+            continue
         dt = _parse_dt(msg.get("date", ""))
         _add(dt, "sms",
              f"{msg.get('direction','')} — {msg.get('address','?')}",
-             msg.get("body", "")[:80], msg)
+             msg.get("body", "")[:80], msg, ("sms.json", "", i))
 
-    for c in _load(os.path.join(output_dir, "call_logs.json")):
+    for i, c in _list("call_logs.json"):
+        if not isinstance(c, dict):
+            continue
         dt = _parse_dt(c.get("date", ""))
         _add(dt, "call",
              f"{c.get('type','')} — {c.get('number','?')}",
-             c.get("duration", ""), c)
+             c.get("duration", ""), c, ("call_logs.json", "", i))
 
-    for h in _load(os.path.join(output_dir, "browser_history.json")):
+    for i, h in _list("browser_history.json"):
+        if not isinstance(h, dict):
+            continue
         dt = _parse_dt(h.get("date", ""))
         _add(dt, "browser",
              h.get("title", "") or h.get("url", "")[:60],
-             h.get("url", "")[:100], h)
+             h.get("url", "")[:100], h, ("browser_history.json", "", i))
 
     fa = _load(os.path.join(output_dir, "file_analysis.json"))
     files = fa.get("files", fa) if isinstance(fa, dict) else fa
+    # same section naming as the search index: list in a dict → section = key
+    fa_section = "files" if isinstance(fa, dict) and files is not fa else ""
     if isinstance(files, list):
-        for f in files:
+        for i, f in enumerate(files):
+            if not isinstance(f, dict):
+                continue
             dt = (_parse_dt(f.get("date_taken", "")) or
                   _parse_dt(f.get("modified", "")))
             src = "photo" if f.get("type") == "image" else "file"
             gps = (f" [{f['gps_latitude']:.4f}, {f['gps_longitude']:.4f}]"
                    if "gps_latitude" in f else "")
             _add(dt, src, f.get("filename", ""),
-                 f.get("camera_model", "") + gps, f)
+                 f.get("camera_model", "") + gps, f, ("file_analysis.json", fa_section, i))
 
     events.sort(key=lambda e: e["dt"])
     return events
@@ -104,8 +119,11 @@ def _display_value(key: str, value) -> str:
 # ── Detail dialog ─────────────────────────────────────────────────────────────
 
 class EventDetailDialog(ctk.CTkToplevel):
-    def __init__(self, master, event: dict):
+    def __init__(self, master, event: dict, output_dir: str = "", on_tags_changed=None):
         super().__init__(master)
+        self._event = event
+        self._output_dir = output_dir
+        self._on_tags_changed = on_tags_changed
         src = SOURCE_CFG.get(event["source"], {"color": ACCENT, "label_key": "src.sms"})
         src_label = t(src["label_key"])
         self.title(f"{t('tl.det_title')} — {src_label}")
@@ -177,9 +195,50 @@ class EventDetailDialog(ctk.CTkToplevel):
                 except Exception:
                     pass
 
-        ctk.CTkButton(self, text=t("res.close"), height=32,
+        bottom = ctk.CTkFrame(self, fg_color="transparent")
+        bottom.pack(fill="x", padx=15, pady=(0, 10))
+        ctk.CTkButton(bottom, text=t("res.close"), height=32, width=110,
                       fg_color="#2a2a4a", hover_color="#3a3a5a",
-                      command=self.destroy).pack(pady=(0, 10))
+                      command=self.destroy).pack(side="right")
+        self._tag_lbl = ctk.CTkLabel(bottom, text="", font=ctk.CTkFont(size=11),
+                                     text_color="#ffcc80", anchor="w")
+        if self._tag_row() is not None:
+            self._tag_btn = ctk.CTkButton(bottom, text=t("res.tag_btn"), height=32, width=110,
+                                          fg_color="#2a2a4a", hover_color="#3a3a5a",
+                                          command=self._tag_menu)
+            self._tag_btn.pack(side="left")
+            self._tag_lbl.pack(side="left", padx=10, fill="x", expand=True)
+            self._show_tags()
+
+    def _tag_row(self):
+        ref = self._event.get("ref")
+        if not (self._output_dir and ref and self._event.get("raw")):
+            return None
+        from core.case_tags import make_row
+        file, section, idx = ref
+        return make_row(file, self._event["raw"], section, idx)
+
+    def _show_tags(self):
+        from core.case_tags import CaseTags
+        row = self._tag_row()
+        try:
+            with CaseTags(self._output_dir) as tg:
+                names = tg.tags_for([row["row_key"]]).get(row["row_key"], [])
+        except Exception:
+            names = []
+        self._tag_lbl.configure(text=("🏷 " + ", ".join(names)) if names else "")
+
+    def _tag_menu(self):
+        from .tagging import popup_tag_menu
+        b = self._tag_btn
+
+        def changed(msg):
+            self._show_tags()
+            if self._on_tags_changed:
+                self._on_tags_changed(msg)
+
+        popup_tag_menu(self, self._output_dir, [self._tag_row()],
+                       b.winfo_rootx(), b.winfo_rooty() + b.winfo_height(), on_change=changed)
 
 
 # ── Main panel ────────────────────────────────────────────────────────────────
@@ -191,6 +250,7 @@ class TimelinePanel(ctk.CTkFrame):
         self._fam = ctk.CTkFont().cget("family")   # match app-wide font on canvas text
         self._events: list[dict] = []
         self._output_dir = ""
+        self.on_tags_changed = None      # set by the app (refreshes the Search panel)
 
         self._view_start: datetime.datetime | None = None
         self._view_end:   datetime.datetime | None = None
@@ -600,7 +660,8 @@ class TimelinePanel(ctk.CTkFrame):
             event.x - r, event.y - r, event.x + r, event.y + r)
         for item in items:
             if item in self._dot_map:
-                EventDetailDialog(self, self._dot_map[item])
+                EventDetailDialog(self, self._dot_map[item], self._output_dir,
+                                  on_tags_changed=self.on_tags_changed)
                 return
 
     def _on_hover(self, event):
