@@ -18,7 +18,7 @@ hiddenimports = []
 
 # Packages with their own data/assets or many submodules –
 # collect_all pulls them in completely (otherwise PyInstaller misses parts).
-for pkg in ("customtkinter", "tkintermapview", "pymobiledevice3", "paramiko"):
+for pkg in ("customtkinter", "tkintermapview", "pymobiledevice3", "paramiko", "pillow_heif"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b

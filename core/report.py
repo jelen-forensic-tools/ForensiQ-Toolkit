@@ -89,6 +89,15 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
     HEADER_H = 1.25 * cm    # band for the header on content pages
     FOOTER_H = 1.2 * cm
     MAX_ROWS_PDF = 500
+    MAX_THUMBS_PDF = 400          # photo previews per module (keeps PDF size reasonable)
+    PDF_IMG_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
+    try:                          # HEIC/HEIF (iPhone photos) only if pillow-heif is installed
+        import pillow_heif
+        pillow_heif.register_heif_opener()
+        PDF_IMG_EXT |= {".heic", ".heif"}
+    except Exception:
+        pass
+    from xml.sax.saxutils import escape as _xml_escape
 
     timestamp = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
     pdf_path  = os.path.join(output_dir, "report.pdf")
@@ -452,6 +461,90 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
         ]))
         return tbl
 
+    # ── Photo previews (thumbnail grid) ───────────────────────────────────────
+    # Thumbnails are downscaled JPEGs written to a temp folder (keeps the PDF small
+    # and lets multiBuild re-read them on every pass); the folder is removed after
+    # the build. Each photo is shown only once even if several modules list it.
+    import tempfile, shutil
+    thumb_dir = tempfile.mkdtemp(prefix="forenziq_thumbs_")
+    shown_photos: set = set()
+    THUMB_COLS = 4
+    THUMB_W = CONTENT_W / THUMB_COLS
+    THUMB_BOX_W, THUMB_BOX_H = THUMB_W - 0.4 * cm, 3.3 * cm
+    s_thumb = _st("thc", size=6.5, color=C_MUTED, align=TA_CENTER, after=0, leading=8)
+    s_gal = _st("gal", font=FB, size=9, color=C_NAVY, before=8, after=4, leading=12)
+    s_gal.keepWithNext = True
+
+    def _collect_photos(r):
+        """Local image files belonging to a result: the folder the module copied
+        media into, or local paths stored in its records."""
+        found = []
+        fp = getattr(r, "file_path", "") or ""
+        if fp and os.path.isdir(fp):
+            for root, _dirs, names in os.walk(fp):
+                for name in sorted(names):
+                    if os.path.splitext(name)[1].lower() in PDF_IMG_EXT:
+                        found.append((os.path.join(root, name), name))
+        elif isinstance(r.data, list):
+            for rec in r.data:
+                if not isinstance(rec, dict):
+                    continue
+                for k in ("local_path", "path", "_local"):
+                    p = rec.get(k)
+                    if (isinstance(p, str) and os.path.splitext(p)[1].lower() in PDF_IMG_EXT
+                            and os.path.isfile(p)):
+                        found.append((p, rec.get("filename") or os.path.basename(p)))
+                        break
+        out = []
+        for p, name in found:
+            key = os.path.normcase(os.path.abspath(p))
+            if key not in shown_photos:
+                shown_photos.add(key)
+                out.append((p, name))
+        return out
+
+    def _thumb(path):
+        """Downscaled, orientation-corrected JPEG copy; None if it cannot be decoded."""
+        try:
+            from PIL import Image as PILImage, ImageOps
+            with PILImage.open(path) as im:
+                im.draft("RGB", (480, 480))
+                im = ImageOps.exif_transpose(im)
+                im = im.convert("RGB")
+                im.thumbnail((480, 480))
+                out = os.path.join(thumb_dir, f"t{len(os.listdir(thumb_dir))}.jpg")
+                im.save(out, "JPEG", quality=72)
+                w, h = im.size
+            sc = min(THUMB_BOX_W / w, THUMB_BOX_H / h)
+            return Image(out, width=w * sc, height=h * sc)
+        except Exception:
+            return None
+
+    def _gallery(photos):
+        total = len(photos)
+        cells = []
+        for p, name in photos[:MAX_THUMBS_PDF]:
+            img = _thumb(p) or Paragraph(t("rpt.no_preview"), s_thumb)
+            # middle ellipsis keeps the extension and fits one line under the thumbnail
+            cap = name if len(name) <= 30 else name[:19] + "…" + name[-10:]
+            cells.append([img, Spacer(1, 2), Paragraph(_xml_escape(cap), s_thumb)])
+        if not cells:
+            return []
+        while len(cells) % THUMB_COLS:
+            cells.append("")
+        rows = [cells[i:i + THUMB_COLS] for i in range(0, len(cells), THUMB_COLS)]
+        tbl = Table(rows, colWidths=[THUMB_W] * THUMB_COLS, hAlign="LEFT")
+        tbl.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"), ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+            ("GRID", (0, 0), (-1, -1), 0.3, C_BORDER),
+            ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        out = [Paragraph(t("rpt.gallery").format(n=total), s_gal), tbl]
+        if total > MAX_THUMBS_PDF:
+            out.append(Paragraph(t("rpt.gallery_truncated").format(
+                shown=MAX_THUMBS_PDF, total=total), s_body))
+        return out
+
     data_results = [r for r in results if r.success and r.data]
     if data_results:
         story.append(PageBreak())
@@ -480,12 +573,16 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
                     ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
                 ]))
                 block.append(kv_tbl)
+        block.extend(_gallery(_collect_photos(r)))
         # keepWithNext keeps the module heading with its table (no KeepTogether → stable
         # pagination and TOC).
         story.extend(block)
         story.append(Spacer(1, 10))
 
-    doc.multiBuild(story)
+    try:
+        doc.multiBuild(story)
+    finally:
+        shutil.rmtree(thumb_dir, ignore_errors=True)
     return pdf_path
 def generate_excel_report(results: list, device_info: dict, output_dir: str) -> str:
     """Generate an Excel workbook (.xlsx) from the extraction results."""
