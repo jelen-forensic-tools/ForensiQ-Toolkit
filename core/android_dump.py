@@ -2,15 +2,15 @@
 core/android_dump.py — analysis of Android physical dumps (eMMC/UFS images).
 
 Input: full storage image with GPT, single userdata partition image (raw or
-Android sparse). The userdata file system (ext4) is read directly from the
-image; nothing is mounted and the image is never written.
+Android sparse). The userdata file system (ext4 or F2FS) is read directly from
+the image; nothing is mounted and the image is never written.
 
 Results are ExtractionResult objects with the same module keys / JSON file
 names as the live ADB extraction, so the Results panel, HTML/PDF/Excel
 reports, Timeline and Map work unchanged.
 
-Limitations (reported to the user): F2FS userdata, file-based encryption
-(FBE) and full-disk encryption (FDE) are detected but not decrypted.
+Limitations (reported to the user): file-based encryption (FBE) and full-disk
+encryption (FDE) are detected but not decrypted; F2FS-compressed files are skipped.
 """
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ from typing import Callable, Optional
 
 from .adump.abx import parse_xml
 from .adump.ext4 import Ext4, Ext4Error, fmt_ts
+from .adump.f2fs import F2FS
 from .adump.image import SubReader, list_partitions, open_image, pick_userdata
 from .contacts_xlsx import write_name_numbers_xlsx
 from .s30.export import safe_component
@@ -124,7 +125,7 @@ class AndroidDumpAnalyzer:
         self.layout = ""
         self.partitions = []
         self._stop = threading.Event()
-        self.fs: Optional[Ext4] = None
+        self.fs: Optional[Ext4 | F2FS] = None
         self.target = ""
         self._tmp = ""
         self.device_info: dict = {}
@@ -201,17 +202,24 @@ class AndroidDumpAnalyzer:
 
         if part is None:
             raise RuntimeError(t("adump.err_no_userdata"))
-        if part.fs == "f2fs":
-            log("⚠ " + t("adump.warn_f2fs"))
-        elif part.fs == "encrypted?":
+        if part.fs == "encrypted?":
             log("⚠ " + t("adump.warn_fde"))
-        elif part.fs != "ext4":
+        elif part.fs not in ("ext4", "f2fs"):
             log("⚠ " + t("adump.warn_fs").format(fs=part.fs))
         else:
-            self.fs = Ext4(SubReader(self.img, part.offset, part.size))
-            fi = self.fs.info()
+            sub = SubReader(self.img, part.offset, part.size)
+            if part.fs == "f2fs":
+                self.fs = F2FS(sub)
+                fi = self.fs.info()
+                log(t("adump.log_f2fs").format(vol=fi["volume_name"] or "-",
+                                                ver=fi["f2fs_version"], cp=fi["checkpoint_version"]))
+                if fi["compression_feature"]:
+                    log("⚠ " + t("adump.warn_f2fs_compr"))
+            else:
+                self.fs = Ext4(sub)
+                fi = self.fs.info()
+                log(t("adump.log_ext4").format(vol=fi["volume_name"] or "-", mounted=fi["last_mount_time"] or "-"))
             info.update({f"userdata_{k}": v for k, v in fi.items()})
-            log(t("adump.log_ext4").format(vol=fi["volume_name"] or "-", mounted=fi["last_mount_time"] or "-"))
             self.fbe = self._detect_fbe()
             info["fbe_encrypted"] = self.fbe
             if self.fbe:

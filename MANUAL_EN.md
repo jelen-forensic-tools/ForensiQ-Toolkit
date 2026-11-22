@@ -43,7 +43,7 @@ reserved fictional phone numbers, `example.com` addresses). They contain no real
 **ForenziQ** is a desktop toolkit for acquiring and analysing data from mobile devices:
 
 - live extraction from Android devices over ADB (USB or Wi-Fi),
-- analysis of Android physical dumps (raw / GPT / sparse images, ext4),
+- analysis of Android physical dumps (raw / GPT / sparse images, ext4 and F2FS),
 - import of Android vendor backups (Samsung, Huawei, Xiaomi, Google, …),
 - iOS: live extraction, iTunes/Finder backups (including **encrypted** backups) and SSH-ramdisk acquisition,
 - Nokia S30+ feature phones (Spreadtrum SC6531E flash dumps),
@@ -379,8 +379,8 @@ Modules: Device information, Contacts, SMS / MMS, Call history, WhatsApp, Browse
 (incl. passwords), Bluetooth devices, Accounts, Installed apps, Internal storage (photos, files).
 Results open in Results / Timeline / Map / Search like a live extraction.
 
-> Supported file system: **ext4**. F2FS and encrypted (FBE/FDE) user data are detected and reported as
-> unsupported. Tested on synthetic images – verify on a known dump before use in a case.
+> Supported file systems: **ext4** and **F2FS**. Encrypted (FBE/FDE) user data is detected and reported as
+> unsupported; F2FS-compressed files are skipped. Tested on synthetic images – verify on a known dump before use in a case.
 
 ---
 
@@ -520,7 +520,7 @@ The computer and the device must be on the same network.
 | *Deleted Data* / WhatsApp modules return nothing | they require root access |
 | iOS device not found | install pymobiledevice3, unlock the device and tap **Trust** |
 | iOS backup – wrong password | the backup password is the one set in iTunes/Finder, not the device passcode |
-| Android dump – "unsupported" | the data partition is F2FS or encrypted; only ext4 is supported |
+| Android dump – "unsupported" | the data partition is encrypted (FBE/FDE) or uses another file system; ext4 and F2FS are supported |
 | Map is empty | photos have no GPS data, or there is no internet connection |
 | Timeline / Search is empty | open the output folder of an extraction (it must contain the module `.json` files) |
 | Search finds nothing for a number | type at least 7 digits; formats do not matter |

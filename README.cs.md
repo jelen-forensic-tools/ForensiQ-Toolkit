@@ -16,7 +16,7 @@
 - **Android přes ADB** (USB nebo Wi-Fi) – kontakty, SMS/MMS, hovory, aplikace, fotky a videa, dokumenty,
   Wi-Fi sítě, účty, historie prohlížeče, celý strom `/sdcard`, EXIF/GPS, hashe souborů; moduly s rootem
   pro smazaná data, WhatsApp a Viber
-- **Fyzické dumpy Androidu** – raw / GPT / sparse obrazy, vlastní čtení ext4 pouze pro čtení (bez připojování)
+- **Fyzické dumpy Androidu** – raw / GPT / sparse obrazy, vlastní čtení ext4 a F2FS pouze pro čtení (bez připojování)
 - **Zálohy Androidu** – ADB `.ab` a zálohy Xiaomi MIUI (**včetně šifrovaných heslem**), Google Takeout;
   automatické rozpoznání záloh Samsung, Huawei, OPPO/realme, Vivo, Motorola, LG, Sony a OnePlus
   (viz [omezení](#stav-a-omezení))
@@ -108,7 +108,8 @@ hledání se zapisují jen do výstupní složky, kterou zvolíte.
 
 - Analýza Android dumpů, dešifrování šifrovaných iOS záloh a modul iOS ramdisk byly testovány na
   syntetických datech – před použitím v případu je ověřte na známých referenčních datech.
-- Android dumpy: pouze ext4 (F2FS a šifrovaná data FBE/FDE se ohlásí jako nepodporovaná).
+- Android dumpy: ext4 a F2FS (šifrovaná data FBE/FDE se ohlásí jako nepodporovaná; komprimované soubory
+  F2FS se přeskočí). Čtečka F2FS byla testována jen na syntetických obrazech.
 - Nokia S30+: pouze Spreadtrum SC6531E (MOCOR).
 - Import záloh: ADB `.ab` a zálohy Xiaomi MIUI (včetně šifrovaných) a Google Takeout se načtou;
   zálohy Samsung Smart Switch a Huawei HiSuite se rozpoznají, ale jejich šifrovaná data zatím nejde

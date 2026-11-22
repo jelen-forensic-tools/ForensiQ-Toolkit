@@ -16,7 +16,7 @@
 - **Android over ADB** (USB or Wi-Fi) – contacts, SMS/MMS, calls, apps, photos & videos, documents,
   Wi-Fi networks, accounts, browser history, the full `/sdcard` tree, EXIF/GPS, file hashes; root modules
   for deleted data, WhatsApp and Viber
-- **Android physical dumps** – raw / GPT / sparse images, read-only ext4 parser (no mounting)
+- **Android physical dumps** – raw / GPT / sparse images, read-only ext4 and F2FS parsers (no mounting)
 - **Android backups** – ADB `.ab` and Xiaomi MIUI backups (**incl. password-encrypted**), Google Takeout;
   format auto-detection for Samsung, Huawei, OPPO/realme, Vivo, Motorola, LG, Sony and OnePlus backups
   (see [limitations](#status-and-limitations))
@@ -108,7 +108,8 @@ index are written only to the output folder you choose.
 
 - The Android dump parser, encrypted iOS backup decryption and the iOS ramdisk module were tested with
   synthetic data – validate them against known reference data before relying on them in a case.
-- Android dumps: ext4 only (F2FS and FBE/FDE-encrypted user data are reported as unsupported).
+- Android dumps: ext4 and F2FS (FBE/FDE-encrypted user data is reported as unsupported; F2FS-compressed
+  files are skipped). The F2FS reader was tested on synthetic images only.
 - Nokia S30+: Spreadtrum SC6531E (MOCOR) only.
 - Backup import: ADB `.ab` and Xiaomi MIUI backups (incl. encrypted) and Google Takeout are parsed;
   Samsung Smart Switch and Huawei HiSuite backups are recognised but their encrypted data cannot be

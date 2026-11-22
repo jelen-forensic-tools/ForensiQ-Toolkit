@@ -44,7 +44,7 @@ reálná data.
 **ForenziQ** je desktopová sada nástrojů pro zajištění a analýzu dat z mobilních zařízení:
 
 - živá extrakce ze zařízení Android přes ADB (USB nebo Wi-Fi),
-- analýza fyzických dumpů Androidu (raw / GPT / sparse obrazy, ext4),
+- analýza fyzických dumpů Androidu (raw / GPT / sparse obrazy, ext4 a F2FS),
 - import záloh výrobců Androidu (Samsung, Huawei, Xiaomi, Google, …),
 - iOS: živá extrakce, zálohy iTunes/Finder (včetně **šifrovaných**) a akvizice přes SSH ramdisk,
 - tlačítkové telefony Nokia S30+ (flash dumpy s čipem Spreadtrum SC6531E),
@@ -380,8 +380,8 @@ Moduly: Informace o zařízení, Kontakty, SMS / MMS, Historie hovorů, WhatsApp
 Wi-Fi sítě (vč. hesel), Bluetooth zařízení, Účty, Nainstalované aplikace, Interní úložiště (fotky,
 soubory). Výsledky se otevřou ve Výsledcích / Časové ose / Mapě / Hledání stejně jako u živé extrakce.
 
-> Podporovaný souborový systém: **ext4**. F2FS a šifrovaná uživatelská data (FBE/FDE) se rozpoznají
-> a ohlásí jako nepodporovaná. Testováno na syntetických obrazech – před použitím v případu ověřte na
+> Podporované souborové systémy: **ext4** a **F2FS**. Šifrovaná uživatelská data (FBE/FDE) se rozpoznají
+> a ohlásí jako nepodporovaná; komprimované soubory F2FS se přeskočí. Testováno na syntetických obrazech – před použitím v případu ověřte na
 > známém dumpu.
 
 ---
@@ -523,7 +523,7 @@ Počítač a zařízení musí být ve stejné síti.
 | Moduly *Smazaná data* / WhatsApp nic nevrátí | vyžadují root |
 | iOS zařízení se nenajde | nainstalujte pymobiledevice3, odemkněte zařízení a klepněte na **Důvěřovat** |
 | iOS záloha – špatné heslo | jde o heslo zálohy nastavené v iTunes/Finderu, ne o kód zařízení |
-| Android dump – „nepodporováno“ | datový oddíl je F2FS nebo šifrovaný; podporován je jen ext4 |
+| Android dump – „nepodporováno“ | datový oddíl je šifrovaný (FBE/FDE) nebo má jiný souborový systém; podporován je ext4 a F2FS |
 | Mapa je prázdná | fotky nemají GPS údaje, nebo chybí připojení k internetu |
 | Časová osa / Hledání je prázdné | otevřete výstupní složku extrakce (musí obsahovat `.json` soubory modulů) |
 | Hledání čísla nic nenajde | zadejte aspoň 7 číslic; na formátu nezáleží |

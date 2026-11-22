@@ -238,11 +238,13 @@ def entropy(b: bytes) -> float:
 
 def scan_ext4(img, on_progress: Optional[Callable[[float], None]] = None,
               stop: Optional[Callable[[], bool]] = None) -> list[Partition]:
-    """Fallback for dumps without a partition table: find ext4 superblocks anywhere (512-aligned)."""
+    """Fallback for dumps without a partition table: find ext4 (512-aligned) and
+    F2FS (4 KiB-aligned) superblocks anywhere in the image."""
     found = []
     chunk = 64 << 20
     pos = 0
     pat = struct.pack("<H", EXT4_MAGIC)
+    pat_f2fs = struct.pack("<I", F2FS_MAGIC)
     while pos < img.size:
         if stop and stop():
             break
@@ -259,6 +261,18 @@ def scan_ext4(img, on_progress: Optional[Callable[[float], None]] = None,
                     size = min(blocks * (1024 << log_bs), img.size - start)
                     found.append(Partition(len(found) + 1, f"ext4@0x{start:x}", start, size, "ext4"))
             i = data.find(pat, i + 1)
+        # F2FS superblock: magic at partition start + 1024, partitions are 4 KiB aligned
+        j = data.find(pat_f2fs)
+        while j != -1 and j < chunk:
+            start = pos + j - 1024
+            # skip the backup superblock (block 1 of a volume already found)
+            if start >= 0 and start % 4096 == 0 and not any(start in (p.offset, p.offset + 4096) for p in found):
+                sb = img.read(start + 1024, 0x60)
+                log_bs, blocks = struct.unpack_from("<I", sb, 0x10)[0], struct.unpack_from("<Q", sb, 0x24)[0]
+                if log_bs == 12 and blocks:
+                    size = min(blocks * 4096, img.size - start)
+                    found.append(Partition(len(found) + 1, f"f2fs@0x{start:x}", start, size, "f2fs"))
+            j = data.find(pat_f2fs, j + 1)
         pos += chunk
         if on_progress:
             on_progress(min(1.0, pos / img.size))
