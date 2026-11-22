@@ -55,3 +55,6 @@ tools/screenshots/demo_settings.json
 
 # Android SDK Platform-Tools (Google) – not in the repository; download separately, bundled into the .exe at build time
 adb/
+
+# Promotion materials (local only)
+promo/
