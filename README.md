@@ -47,6 +47,15 @@
 
 ## Quick start
 
+**Download** – a ready-to-run `ForenziQ.exe` (no Python needed) is on the
+[Releases](https://github.com/jelen-forensic-tools/ForenziQ-Toolkit/releases/latest) page.
+
+> **Windows warning:** the `.exe` is not code-signed yet. Windows SmartScreen may show
+> *"Windows protected your PC"* – click **More info → Run anyway**. If **Smart App Control** is enabled,
+> Windows may block the file entirely; in that case run ForenziQ from source (below).
+> You can verify the download against the SHA-256 hash published with each release:
+> `Get-FileHash .\ForenziQ.exe -Algorithm SHA256` (PowerShell).
+
 **Requirements:** Windows 10/11 (64-bit), Python 3.11+ (when running from source).
 
 ```bash

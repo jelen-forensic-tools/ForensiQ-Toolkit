@@ -47,6 +47,15 @@
 
 ## Rychlý start
 
+**Stažení** – hotový `ForenziQ.exe` (bez nutnosti instalovat Python) najdete na stránce
+[Releases](https://github.com/jelen-forensic-tools/ForenziQ-Toolkit/releases/latest).
+
+> **Upozornění Windows:** `.exe` zatím není digitálně podepsaný. Windows SmartScreen může zobrazit
+> *„Systém Windows ochránil váš počítač“* – klikněte na **Další informace → Přesto spustit**. Pokud je zapnuté
+> **Inteligentní řízení aplikací** (Smart App Control), Windows může soubor úplně zablokovat; v tom případě
+> spusťte ForenziQ ze zdrojových kódů (viz níže). Stažený soubor můžete ověřit podle hashe SHA-256
+> zveřejněného u každého vydání: `Get-FileHash .\ForenziQ.exe -Algorithm SHA256` (PowerShell).
+
 **Požadavky:** Windows 10/11 (64bit), Python 3.11+ (při spuštění ze zdrojových kódů).
 
 ```bash
