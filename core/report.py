@@ -251,7 +251,8 @@ def generate_pdf_report(results: list, device_info: dict, output_dir: str,
         header_line.append(f"{t('rpt.hdr_evidence')}: {evidence}")
     header_line.append(device_label)
     header_text = "    ·    ".join(header_line)
-    from .version import __version__
+    from .version import full_version
+    __version__ = full_version()
     footer_left = f"ForenziQ Toolkit v{__version__}  ·  {timestamp}"
 
     def _decorate(canvas, docu):
@@ -785,7 +786,8 @@ def generate_report(results: list, device_info: dict, output_dir: str,
     import base64
     import io
     import html as _html
-    from .version import __version__
+    from .version import full_version
+    __version__ = full_version()
 
     timestamp = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
     report_path = os.path.join(output_dir, file_name)

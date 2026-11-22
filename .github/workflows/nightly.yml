@@ -1,0 +1,98 @@
+# Nightly build: every push to main builds ForenziQ.exe on Windows and replaces the
+# single "nightly" pre-release. Stable releases (vX.Y.Z) are still created by hand.
+name: Nightly build
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+  workflow_dispatch:
+
+# a newer push cancels an older running build
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Download Android SDK Platform-Tools (ADB)
+        # not stored in the repository – fetched from Google for every build
+        run: |
+          Invoke-WebRequest "https://dl.google.com/android/repository/platform-tools-latest-windows.zip" -OutFile pt.zip
+          Expand-Archive pt.zip -DestinationPath pt
+          Move-Item pt/platform-tools adb
+          Get-Content adb/source.properties
+
+      - name: Stamp build id into core/version.py
+        run: |
+          $short = "${{ github.sha }}".Substring(0, 7)
+          $file = "core/version.py"
+          $text = Get-Content $file -Raw
+          if ($text -notmatch '(?m)^BUILD = ""') { throw "BUILD line not found in $file" }
+          $text = $text -replace '(?m)^BUILD = ""', "BUILD = `"$short`""
+          [IO.File]::WriteAllText($file, $text)
+          $ver = python -c "import sys; sys.path.insert(0, '.'); from core.version import full_version; print(full_version())"
+          "VERSION=$ver" >> $env:GITHUB_ENV
+          "SHORT=$short" >> $env:GITHUB_ENV
+          Write-Host "Version: $ver"
+
+      - name: Build ForenziQ.exe
+        run: python -m PyInstaller ForenziQ.spec --noconfirm --clean
+
+      - name: Checksum
+        run: |
+          if (-not (Test-Path dist/ForenziQ.exe)) { throw "dist/ForenziQ.exe missing" }
+          $h = (Get-FileHash dist/ForenziQ.exe -Algorithm SHA256).Hash.ToLower()
+          "$h  ForenziQ.exe" | Out-File dist/SHA256SUMS.txt -Encoding ascii
+          "SHA256=$h" >> $env:GITHUB_ENV
+          Write-Host "SHA-256: $h  size: $((Get-Item dist/ForenziQ.exe).Length)"
+
+      - name: Publish the "nightly" pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # replace the previous nightly (release + tag); ignore "not found" on the first run
+          gh release delete nightly --yes --cleanup-tag 2>$null
+          $global:LASTEXITCODE = 0
+          $notes = @"
+          **Development build – not a stable release.** Built automatically from commit ${{ github.sha }}
+          ($(Get-Date -AsUTC -Format 'yyyy-MM-dd HH:mm') UTC). It contains the latest changes on ``main``
+          and has not been tested like a stable release – for casework prefer the
+          [latest stable release](https://github.com/${{ github.repository }}/releases/latest).
+
+          The application identifies itself as **v$env:VERSION** (window title, report footers, evidence manifest).
+
+          SHA-256 of ``ForenziQ.exe``: ``$env:SHA256``
+
+          The .exe is not code-signed (Windows SmartScreen / Smart App Control may warn).
+          It bundles Android SDK Platform-Tools (adb) from Google, subject to Google's terms.
+          "@
+          $notes = ($notes -split "`n" | ForEach-Object { $_.Trim() }) -join "`n"
+          gh release create nightly dist/ForenziQ.exe dist/SHA256SUMS.txt `
+            --target "${{ github.sha }}" --prerelease --latest=false `
+            --title "Nightly build v$env:VERSION" --notes "$notes"

@@ -53,6 +53,9 @@
 
 **Download** – a ready-to-run `ForenziQ.exe` (no Python needed) is on the
 [Releases](https://github.com/jelen-forensic-tools/ForenziQ-Toolkit/releases/latest) page.
+The newest development build of `main` (rebuilt automatically after every change, not tested like a
+stable release) is the [Nightly build](https://github.com/jelen-forensic-tools/ForenziQ-Toolkit/releases/tag/nightly)
+pre-release; it shows its version with the commit, e.g. *v1.1.0+6fce99e*.
 
 > **Windows warning:** the `.exe` is not code-signed yet. Windows SmartScreen may show
 > *"Windows protected your PC"* – click **More info → Run anyway**. If **Smart App Control** is enabled,

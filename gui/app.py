@@ -15,7 +15,7 @@ from .logo import logo_ctk_image
 from core.adb_manager import ADBManager
 from core.evidence import generate_manifest, verify_manifest, MANIFEST_TXT
 from core.i18n import t, set_lang, get_lang, retranslate
-from core.version import __version__
+from core.version import __version__, full_version
 
 
 ctk.set_appearance_mode("dark")
@@ -98,7 +98,7 @@ class ForenziQApp(ctk.CTk):
             ctk.set_widget_scaling(self._scale)
             ctk.set_window_scaling(self._scale)
 
-        self.title(f"ForenziQ Toolkit v{__version__}")
+        self.title(f"ForenziQ Toolkit v{full_version()}")
         self._set_app_icon()
         # Window size adapted to the screen. The "restored" size and the minimum
         # size are ALWAYS clamped to fit the current screen (otherwise on small

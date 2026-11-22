@@ -17,7 +17,9 @@ import os
 from typing import Callable, Optional
 
 TOOL_NAME = "ForenziQ"
-from .version import __version__ as TOOL_VERSION
+from .version import full_version
+
+TOOL_VERSION = full_version()
 
 MANIFEST_NAME = "evidence_manifest.json"
 MANIFEST_TXT = "evidence_manifest.txt"

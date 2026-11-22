@@ -53,6 +53,9 @@
 
 **Stažení** – hotový `ForenziQ.exe` (bez nutnosti instalovat Python) najdete na stránce
 [Releases](https://github.com/jelen-forensic-tools/ForenziQ-Toolkit/releases/latest).
+Nejnovější vývojové sestavení z `main` (vytváří se samo po každé změně, není otestované jako stabilní
+vydání) je pre-release [Nightly build](https://github.com/jelen-forensic-tools/ForenziQ-Toolkit/releases/tag/nightly);
+verzi uvádí i s commitem, např. *v1.1.0+6fce99e*.
 
 > **Upozornění Windows:** `.exe` zatím není digitálně podepsaný. Windows SmartScreen může zobrazit
 > *„Systém Windows ochránil váš počítač“* – klikněte na **Další informace → Přesto spustit**. Pokud je zapnuté
